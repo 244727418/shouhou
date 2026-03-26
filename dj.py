@@ -426,6 +426,9 @@ class Database:
                 )
             ''')
         
+        # 性能优化：自动修复缺失的表（确保exe运行时表一定存在）
+        self._auto_fix_missing_tables()
+        
         # 创建 refund_records 表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS refund_records (
@@ -483,6 +486,61 @@ class Database:
                 setting_value TEXT
             )
         ''')
+        
+        self.conn.commit()
+
+    def _auto_fix_missing_tables(self):
+        """自动修复缺失的表（确保exe运行时表一定存在）"""
+        cursor = self.conn.cursor()
+        
+        # 检查 global_settings 表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='global_settings'")
+        if not cursor.fetchone():
+            # 创建 global_settings 表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS global_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    setting_key TEXT UNIQUE NOT NULL,
+                    setting_value TEXT
+                )
+            ''')
+            print("✅ 自动修复：global_settings 表已创建")
+        
+        # 检查 window_settings 表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='window_settings'")
+        if not cursor.fetchone():
+            # 创建 window_settings 表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS window_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    setting_key TEXT UNIQUE NOT NULL,
+                    setting_value TEXT
+                )
+            ''')
+            print("✅ 自动修复：window_settings 表已创建")
+        
+        # 检查 refund_records 表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='refund_records'")
+        if not cursor.fetchone():
+            # 创建 refund_records 表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS refund_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    store_id INTEGER NOT NULL,
+                    order_no TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    refund_amount REAL NOT NULL,
+                    cancel INTEGER DEFAULT 0,
+                    compensate INTEGER DEFAULT 0,
+                    comp_amount REAL DEFAULT 0,
+                    reject INTEGER DEFAULT 0,
+                    reject_result TEXT DEFAULT '',
+                    notes TEXT DEFAULT '',
+                    record_date TEXT DEFAULT '',
+                    FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
+                )
+            ''')
+            print("✅ 自动修复：refund_records 表已创建")
         
         self.conn.commit()
 
