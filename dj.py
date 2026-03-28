@@ -3458,12 +3458,24 @@ class RefundManager(QMainWindow):
             return
 
         try:
+            # 检查文件是否被占用
+            import os
+            if os.path.exists(file_path):
+                try:
+                    # 尝试以写入模式打开文件，如果被占用会抛出异常
+                    with open(file_path, 'a', encoding='utf-8') as f:
+                        pass
+                except PermissionError:
+                    QMessageBox.warning(self, "文件被占用", 
+                                       f"文件 '{os.path.basename(file_path)}' 正在被其他程序使用！\n\n请先关闭该文件，然后重试。")
+                    return
+            
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "退款记录"
 
-            # 表头
-            headers = ["店铺名称", "订单号", "退款原因", "退款金额", "撤销", "打款补偿", "补偿金额", "登记日期"]
+            # 表头 - 包含所有11列数据
+            headers = ["店铺名称", "订单号", "退款原因", "退款金额", "撤销", "打款补偿", "补偿金额", "驳回", "驳回结果", "登记日期", "备注"]
             ws.append(headers)
 
             # 样式
@@ -3481,29 +3493,53 @@ class RefundManager(QMainWindow):
                 cell.font = header_font
                 cell.alignment = header_alignment
 
-            # 写入数据
+            # 写入数据 - 导出所有11列
             for row_idx in range(rows):
                 row_data = []
-                for col in range(8):
+                for col in range(11):  # 改为11列
                     item = self.table.item(row_idx, col)
                     text = item.text() if item else ""
+                    
                     # 处理金额格式
-                    if col in [3, 6]:
+                    if col in [3, 6]:  # 退款金额和补偿金额列
                         # 去掉¥符号，保留数字
                         text = text.replace('¥', '').replace(',', '')
+                    
+                    # 处理日期格式 - 确保登记日期是准确日期
+                    if col == 9:  # 登记日期列（第10列，索引为9）
+                        # 如果日期显示有问题，尝试从数据库获取准确日期
+                        record_id = self.get_record_id_from_row(row_idx)
+                        if record_id:
+                            record = self.db.get_record_by_id(record_id)
+                            if record and record.get('record_date'):
+                                text = record['record_date']  # 使用数据库中的准确日期
+                    
                     row_data.append(text)
                 ws.append(row_data)
 
             # 设置数据行样式（居中对齐，边框）
             for row_idx in range(2, rows+2):
-                for col_idx in range(1, 9):
+                for col_idx in range(1, 12):  # 改为12列
                     cell = ws.cell(row=row_idx, column=col_idx)
                     cell.alignment = center_alignment
                     cell.border = thin_border
+                    
                     # 金额列格式为数字
                     if col_idx in [4, 7]:  # 退款金额和补偿金额列
                         try:
-                            cell.value = float(cell.value)
+                            if cell.value:
+                                cell.value = float(cell.value)
+                        except:
+                            pass
+                    
+                    # 日期列格式为日期
+                    if col_idx == 10:  # 登记日期列
+                        try:
+                            if cell.value:
+                                # 尝试解析日期格式
+                                date_obj = datetime.strptime(cell.value, '%Y-%m-%d')
+                                cell.value = date_obj
+                                cell.number_format = 'YYYY-MM-DD'
                         except:
                             pass
 
