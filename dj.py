@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QColorDialog, QListWidget, QListWidgetItem, QItemDelegate, QFontDialog, QSpinBox, QSlider, QSplitter,
     QSizePolicy
 )
-from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint
+from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation
 from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette
 
 import openpyxl
@@ -348,6 +348,75 @@ class StoreSettingsDialog(QDialog):
                 percent = (refund_budget / settings['daily_sales']) * 100
                 self.refund_budget_percent_edit.setText(f"{percent:.2f}")
 
+
+# ---------------------------- 气泡提示组件 --------------------------------
+class BubbleMessage(QWidget):
+    def __init__(self, message, parent=None):
+        super().__init__(parent)
+        self.message = message
+        self.parent = parent
+        self.init_ui()
+        self.setup_animation()
+    
+    def init_ui(self):
+        """初始化气泡界面"""
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.ToolTip)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgba(52, 152, 219, 0.9);
+                border-radius: 15px;
+                padding: 12px 18px;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.label = QLabel(self.message)
+        self.label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        self.label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.label)
+        
+        # 设置气泡大小
+        self.setFixedSize(300, 80)
+    
+    def setup_animation(self):
+        """设置淡入淡出动画"""
+        # 淡入动画
+        self.fade_in = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_in.setDuration(300)  # 300毫秒淡入
+        self.fade_in.setStartValue(0.0)
+        self.fade_in.setEndValue(1.0)
+        
+        # 淡出动画
+        self.fade_out = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_out.setDuration(300)  # 300毫秒淡出
+        self.fade_out.setStartValue(1.0)
+        self.fade_out.setEndValue(0.0)
+        
+        # 连接动画
+        self.fade_in.finished.connect(self.start_fade_out)
+        self.fade_out.finished.connect(self.close)
+    
+    def start_fade_out(self):
+        """开始淡出动画"""
+        QTimer.singleShot(1000, self.fade_out.start)  # 显示1秒后开始淡出
+    
+    def show_bubble(self):
+        """显示气泡"""
+        # 定位到父窗口中心
+        if self.parent:
+            parent_rect = self.parent.geometry()
+            x = parent_rect.center().x() - self.width() // 2
+            y = parent_rect.center().y() - self.height() // 2
+            self.move(x, y)
+        
+        self.show()
+        self.fade_in.start()
 
 # ---------------------------- 自定义表格委托类 --------------------------------
 class CustomItemDelegate(QItemDelegate):
@@ -1902,6 +1971,11 @@ class RefundManager(QMainWindow):
         self.save_window_settings()
         event.accept()
 
+    def show_bubble_message(self, message):
+        """显示淡入淡出气泡消息"""
+        bubble = BubbleMessage(message, self)
+        bubble.show_bubble()
+
     def load_store_settings(self):
         """从数据库加载店铺设置"""
         # 获取当前选择的店铺
@@ -2630,8 +2704,20 @@ class RefundManager(QMainWindow):
         
         if reply == QMessageBox.Yes:
             if self.db.delete_store(store_id):
+                # 刷新店铺列表
                 self.load_stores()
-                # 重置选择
+                
+                # 强制刷新订单记录表格（清除所有缓存和筛选条件）
+                if hasattr(self, 'load_table_data'):
+                    self.load_table_data(force_reload=True)
+                
+                # 刷新搜索筛选区的店铺选择
+                if hasattr(self, 'search_store_combo'):
+                    # 重新加载店铺列表，搜索筛选区的下拉框会自动更新
+                    self.load_stores()
+                    self.search_store_combo.setCurrentIndex(0)  # 重置为"全部"
+                
+                # 重置信息录入区的选择
                 if self.store_combo.count() > 0:
                     self.store_combo.setCurrentIndex(0)
                 else:
@@ -2642,6 +2728,16 @@ class RefundManager(QMainWindow):
                 if hasattr(self, 'edit_store_btn') and hasattr(self, 'delete_store_btn'):
                     self.edit_store_btn.setEnabled(False)
                     self.delete_store_btn.setEnabled(False)
+                
+                # 刷新所有统计信息
+                if hasattr(self, 'update_store_stats_display'):
+                    self.update_store_stats_display()
+                
+                if hasattr(self, 'update_status_bar'):
+                    self.update_status_bar()
+                
+                if hasattr(self, 'update_total_amount_display'):
+                    self.update_total_amount_display()
                 
                 self.show_tooltip(f"店铺 {current_store} 及其所有数据已删除", "rgba(244, 67, 54, 0.95)", 2000)  # 红色气泡
             else:
@@ -3291,11 +3387,9 @@ class RefundManager(QMainWindow):
         # 强制重新加载所有数据
         self.load_table_data(force_reload=True)
         
-        # 显示提示信息
+        # 显示淡入淡出气泡提示信息
         total_count = self.table.rowCount()
-        QMessageBox.information(self, "显示全部", 
-                               f"✅ 已显示全部记录！\n"
-                               f"当前显示 {total_count} 条记录。")
+        self.show_bubble_message(f"✅ 已显示全部记录！\n当前显示 {total_count} 条记录。")
 
     def set_quick_date(self, days):
         """快捷日期设置（近7天和近30天不包括今天）"""
