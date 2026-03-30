@@ -1,6 +1,9 @@
 import sys
 import sqlite3
 import re
+import json
+import requests
+import markdown
 from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import (
@@ -9,7 +12,7 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QMessageBox, QFileDialog, QInputDialog, QHeaderView, QAbstractItemView,
     QFrame, QStatusBar, QDateEdit, QDialog, QDialogButtonBox, QFormLayout, QShortcut, QAction, QMenu,
     QColorDialog, QListWidget, QListWidgetItem, QItemDelegate, QFontDialog, QSpinBox, QSlider, QSplitter,
-    QSizePolicy
+    QSizePolicy, QProgressDialog, QTextEdit
 )
 from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation
 from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette
@@ -520,6 +523,18 @@ class Database:
         ''')
         # 添加索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_order_no ON refund_records (order_no)')
+        
+        # 创建 API 配置表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS api_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_url TEXT DEFAULT 'https://api.deepseek.com/v1/chat/completions',
+                api_key TEXT DEFAULT '',
+                model TEXT DEFAULT 'deepseek-chat',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_record_date ON refund_records (record_date)')
         self.conn.commit()
     
@@ -1035,6 +1050,15 @@ class Database:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def get_store_id_by_name(self, store_name):
+        """根据店铺名称获取店铺ID"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id FROM stores WHERE store_name = ?', (store_name,))
+        result = cursor.fetchone()
+        if result and isinstance(result, (tuple, list)) and len(result) > 0:
+            return result[0] if isinstance(result[0], int) else int(result[0])
+        return None
+
     def update_record_partial(self, record_id, **kwargs):
         """智能增量更新记录：只更新提供的字段，保护未提供的字段"""
         if not kwargs:
@@ -1209,6 +1233,249 @@ class Database:
             })
         return results
 
+    def get_records_by_filters(self, store_id=None, start_date=None, end_date=None, reasons=None):
+        """根据筛选条件获取记录"""
+        cursor = self.conn.cursor()
+        
+        query = '''
+            SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
+                   r.reject, r.reject_result, r.notes, r.record_date, s.store_name
+            FROM refund_records r
+            JOIN stores s ON r.store_id = s.id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if store_id is not None:
+            query += ' AND r.store_id = ?'
+            params.append(store_id)
+            
+        if start_date:
+            query += ' AND r.record_date >= ?'
+            params.append(start_date)
+            
+        if end_date:
+            query += ' AND r.record_date <= ?'
+            params.append(end_date)
+            
+        if reasons:
+            placeholders = ','.join(['?'] * len(reasons))
+            query += f' AND r.reason IN ({placeholders})'
+            params.extend(reasons)
+            
+        query += ' ORDER BY r.record_date DESC, r.id DESC'
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
+                'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
+                'reject': bool(row[7]), 'reject_result': row[8], 'notes': row[9],
+                'record_date': row[10], 'store_name': row[11]
+            })
+        return results
+
+    def get_refund_stats_by_store(self, store_id, start_date, end_date):
+        """获取单个店铺的退款统计"""
+        cursor = self.conn.cursor()
+        
+        # 基础查询
+        query = '''
+            SELECT 
+                COUNT(*) as total_count,
+                SUM(refund_amount) as total_amount,
+                SUM(CASE WHEN reason IN ('商品腐败、变质、包装胀气等', '商品破损/压坏', '质量问题', '大小/规格/重量等与商品描述不符', '品种/标签/图片/包装等与商品描述不符', '货物与描述不符') THEN 1 ELSE 0 END) as quality_count,
+                SUM(CASE WHEN reason = '其他' THEN 1 ELSE 0 END) as other_count,
+                SUM(CASE WHEN cancel = 1 AND reason IN ('商品腐败、变质、包装胀气等', '商品破损/压坏', '质量问题', '大小/规格/重量等与商品描述不符', '品种/标签/图片/包装等与商品描述不符', '货物与描述不符') THEN 1 ELSE 0 END) as canceled_quality_count,
+                SUM(CASE WHEN compensate = 1 THEN comp_amount ELSE 0 END) as comp_total_amount,
+                SUM(CASE WHEN reject = 1 AND reject_result = '成功' THEN 1 ELSE 0 END) as reject_success_count,
+                SUM(CASE WHEN reject = 1 THEN 1 ELSE 0 END) as reject_total_count
+            FROM refund_records 
+            WHERE store_id = ? AND record_date BETWEEN ? AND ?
+        '''
+        
+        cursor.execute(query, (store_id, start_date, end_date))
+        row = cursor.fetchone()
+        
+        if not row:
+            return {}
+            
+        total_count = row[0] or 0
+        total_amount = row[1] or 0
+        quality_count = row[2] or 0
+        other_count = row[3] or 0
+        canceled_quality_count = row[4] or 0
+        comp_total_amount = row[5] or 0
+        reject_success_count = row[6] or 0
+        reject_total_count = row[7] or 0
+        
+        # 计算各种比率
+        total_refund_rate = (total_count / 100) * 100 if total_count > 0 else 0
+        refund_amount_ratio = (total_amount / 10000) * 100 if total_amount > 0 else 0
+        apply_quality_rate = (quality_count / 100) * 100 if quality_count > 0 else 0
+        actual_quality_rate = ((quality_count - canceled_quality_count) / 100) * 100 if quality_count > 0 else 0
+        quality_cancel_rate = (canceled_quality_count / quality_count) * 100 if quality_count > 0 else 0
+        reject_success_rate = (reject_success_count / reject_total_count) * 100 if reject_total_count > 0 else 0
+        
+        # 获取退款原因排名
+        reason_query = '''
+            SELECT reason, COUNT(*) as count
+            FROM refund_records
+            WHERE store_id = ? AND record_date BETWEEN ? AND ?
+            GROUP BY reason
+            ORDER BY count DESC
+            LIMIT 1
+        '''
+        cursor.execute(reason_query, (store_id, start_date, end_date))
+        reason_row = cursor.fetchone()
+        
+        top_reason = reason_row[0] if reason_row else ""
+        top_reason_count = reason_row[1] if reason_row else 0
+        top_reason_ratio = (top_reason_count / total_count) * 100 if total_count > 0 else 0
+        
+        return {
+            'quality_refund_count': quality_count,
+            'other_refund_count': other_count,
+            'canceled_quality_count': canceled_quality_count,
+            'total_refund_rate': round(total_refund_rate, 2),
+            'total_refund_amount': round(total_amount, 2),
+            'refund_amount_ratio': round(refund_amount_ratio, 2),
+            'quality_after_sales_amount': round(quality_count * 50, 2),  # 假设平均50元
+            'other_after_sales_amount': round(other_count * 30, 2),     # 假设平均30元
+            'apply_quality_rate': round(apply_quality_rate, 2),
+            'actual_quality_rate': round(actual_quality_rate, 2),
+            'quality_cancel_rate': round(quality_cancel_rate, 2),
+            'top_refund_reason': top_reason,
+            'top_reason_count': top_reason_count,
+            'top_reason_ratio': round(top_reason_ratio, 2),
+            'comp_total_amount': round(comp_total_amount, 2),
+            'reject_success_rate': round(reject_success_rate, 2)
+        }
+
+    def get_refund_stats_all_stores(self, start_date, end_date):
+        """获取所有店铺的汇总退款统计"""
+        cursor = self.conn.cursor()
+        
+        # 获取所有店铺的汇总数据
+        query = '''
+            SELECT 
+                COUNT(*) as total_count,
+                SUM(refund_amount) as total_amount,
+                SUM(CASE WHEN reason IN ('商品腐败、变质、包装胀气等', '商品破损/压坏', '质量问题', '大小/规格/重量等与商品描述不符', '品种/标签/图片/包装等与商品描述不符', '货物与描述不符') THEN 1 ELSE 0 END) as quality_count,
+                SUM(CASE WHEN reason = '其他' THEN 1 ELSE 0 END) as other_count,
+                SUM(CASE WHEN cancel = 1 AND reason IN ('商品腐败、变质、包装胀气等', '商品破损/压坏', '质量问题', '大小/规格/重量等与商品描述不符', '品种/标签/图片/包装等与商品描述不符', '货物与描述不符') THEN 1 ELSE 0 END) as canceled_quality_count,
+                SUM(CASE WHEN compensate = 1 THEN comp_amount ELSE 0 END) as comp_total_amount,
+                SUM(CASE WHEN reject = 1 AND reject_result = '成功' THEN 1 ELSE 0 END) as reject_success_count,
+                SUM(CASE WHEN reject = 1 THEN 1 ELSE 0 END) as reject_total_count
+            FROM refund_records 
+            WHERE record_date BETWEEN ? AND ?
+        '''
+        
+        cursor.execute(query, (start_date, end_date))
+        row = cursor.fetchone()
+        
+        if not row:
+            return {}
+            
+        total_count = row[0] or 0
+        total_amount = row[1] or 0
+        quality_count = row[2] or 0
+        other_count = row[3] or 0
+        canceled_quality_count = row[4] or 0
+        comp_total_amount = row[5] or 0
+        reject_success_count = row[6] or 0
+        reject_total_count = row[7] or 0
+        
+        # 计算各种比率
+        total_refund_rate = (total_count / 100) * 100 if total_count > 0 else 0
+        refund_amount_ratio = (total_amount / 10000) * 100 if total_amount > 0 else 0
+        apply_quality_rate = (quality_count / 100) * 100 if quality_count > 0 else 0
+        actual_quality_rate = ((quality_count - canceled_quality_count) / 100) * 100 if quality_count > 0 else 0
+        quality_cancel_rate = (canceled_quality_count / quality_count) * 100 if quality_count > 0 else 0
+        reject_success_rate = (reject_success_count / reject_total_count) * 100 if reject_total_count > 0 else 0
+        
+        # 获取退款原因排名
+        reason_query = '''
+            SELECT reason, COUNT(*) as count
+            FROM refund_records
+            WHERE record_date BETWEEN ? AND ?
+            GROUP BY reason
+            ORDER BY count DESC
+            LIMIT 1
+        '''
+        cursor.execute(reason_query, (start_date, end_date))
+        reason_row = cursor.fetchone()
+        
+        top_reason = reason_row[0] if reason_row else ""
+        top_reason_count = reason_row[1] if reason_row else 0
+        top_reason_ratio = (top_reason_count / total_count) * 100 if total_count > 0 else 0
+        
+        return {
+            'quality_refund_count': quality_count,
+            'other_refund_count': other_count,
+            'canceled_quality_count': canceled_quality_count,
+            'total_refund_rate': round(total_refund_rate, 2),
+            'total_refund_amount': round(total_amount, 2),
+            'refund_amount_ratio': round(refund_amount_ratio, 2),
+            'quality_after_sales_amount': round(quality_count * 50, 2),
+            'other_after_sales_amount': round(other_count * 30, 2),
+            'apply_quality_rate': round(apply_quality_rate, 2),
+            'actual_quality_rate': round(actual_quality_rate, 2),
+            'quality_cancel_rate': round(quality_cancel_rate, 2),
+            'top_refund_reason': top_reason,
+            'top_reason_count': top_reason_count,
+            'top_reason_ratio': round(top_reason_ratio, 2),
+            'comp_total_amount': round(comp_total_amount, 2),
+            'reject_success_rate': round(reject_success_rate, 2)
+        }
+
+    def save_api_config(self, api_url, api_key, model):
+        """保存API配置"""
+        cursor = self.conn.cursor()
+        
+        # 检查是否已有配置
+        cursor.execute('SELECT id FROM api_config LIMIT 1')
+        existing_config = cursor.fetchone()
+        
+        if existing_config:
+            # 更新现有配置
+            cursor.execute('''
+                UPDATE api_config 
+                SET api_url=?, api_key=?, model=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            ''', (api_url, api_key, model, existing_config[0]))
+        else:
+            # 插入新配置
+            cursor.execute('''
+                INSERT INTO api_config (api_url, api_key, model)
+                VALUES (?, ?, ?)
+            ''', (api_url, api_key, model))
+        
+        self.conn.commit()
+        return True
+
+    def load_api_config(self):
+        """加载API配置"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT api_url, api_key, model FROM api_config LIMIT 1')
+        row = cursor.fetchone()
+        
+        if row:
+            return {
+                'api_url': row[0],
+                'api_key': row[1],
+                'model': row[2]
+            }
+        else:
+            # 返回默认配置
+            return {
+                'api_url': 'https://api.deepseek.com/v1/chat/completions',
+                'api_key': '',
+                'model': 'deepseek-chat'
+            }
+
 # ---------------------------- 主窗口类 ---------------------------------
 class RefundManager(QMainWindow):
     def __init__(self):
@@ -1218,6 +1485,12 @@ class RefundManager(QMainWindow):
         self.highlighted_orders = set()  # 刚导入需要高亮的订单号集合
         self.selected_reasons = set()  # 多选退款原因集合
         self.store_settings = {}  # 店铺基本信息设置
+        
+        # AI分析器
+        self.ai_analyzer = AIAnalyzer()
+        
+        # 加载API配置
+        self.load_api_config()
         
         # 性能优化：初始化定时器（避免重复创建）
         self._search_timer = QTimer()
@@ -1553,6 +1826,27 @@ class RefundManager(QMainWindow):
         btn_layout.addWidget(self.import_btn)
         btn_layout.addWidget(self.export_btn)
         btn_layout.addWidget(self.clear_highlight_btn)
+        
+        # AI分析按钮
+        self.ai_analyze_btn = QPushButton("AI分析")
+        self.ai_analyze_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                padding: 3px 8px;
+                background-color: #9C27B0;
+                color: white;
+                border: 1px solid #7B1FA2;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+            QPushButton:pressed {
+                background-color: #6A1B9A;
+            }
+        """)
+        btn_layout.addWidget(self.ai_analyze_btn)
+        
         btn_layout.addStretch()
         input_layout.addLayout(btn_layout, 3, 0, 1, 7)  # 修改为第3行
 
@@ -1564,6 +1858,7 @@ class RefundManager(QMainWindow):
         self.import_btn.clicked.connect(self.import_excel)
         self.export_btn.clicked.connect(self.export_excel)
         self.clear_highlight_btn.clicked.connect(self.clear_highlight)
+        self.ai_analyze_btn.clicked.connect(self.ai_analyze_data)
 
         # 刷新表格按钮 - 添加在添加记录按钮下方
         refresh_btn_layout = QHBoxLayout()
@@ -5788,12 +6083,542 @@ class RefundManager(QMainWindow):
         record = self.db.get_record_by_order_no(order_no)
         return record['id'] if record else None
 
+    def collect_analysis_data(self):
+        """收集当前筛选条件下的数据用于AI分析"""
+        # 获取当前筛选条件下的订单数据
+        records = self.get_current_filtered_records()
+        
+        # 获取店铺统计信息
+        store_stats = self.get_current_store_stats()
+        
+        # 构建分析数据
+        analysis_data = {
+            "analysis_period": {
+                "start_date": self.start_date_edit.date().toString("yyyy-MM-dd"),
+                "end_date": self.end_date_edit.date().toString("yyyy-MM-dd")
+            },
+            "store_settings": store_stats.get("store_settings", {}),
+            "refund_stats": store_stats.get("refund_stats", {}),
+            "orders": []
+        }
+        
+        # 处理订单数据
+        for record in records:
+            order_data = {
+                "store_name": record.get("store_name", ""),
+                "order_no": record.get("order_no", ""),
+                "reason": record.get("reason", ""),
+                "refund_amount": float(record.get("refund_amount", 0)),
+                "cancel": "是" if record.get("cancel", 0) else "否",
+                "compensate": "是" if record.get("compensate", 0) else "否",
+                "comp_amount": float(record.get("comp_amount", 0)),
+                "reject": "是" if record.get("reject", 0) else "否",
+                "reject_result": record.get("reject_result", "无"),
+                "record_date": record.get("record_date", ""),
+                "notes": record.get("notes", "")
+            }
+            analysis_data["orders"].append(order_data)
+        
+        return analysis_data
+
+    def get_current_filtered_records(self):
+        """获取当前筛选条件下的订单记录"""
+        # 获取当前店铺ID
+        store_id = None
+        current_store = self.store_combo.currentText()
+        if current_store and current_store != "全部店铺":
+            store_id = self.db.get_store_id_by_name(current_store)
+        
+        # 获取日期范围
+        start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+        
+        # 获取退款原因筛选
+        selected_reasons = list(self.selected_reasons)
+        
+        # 获取订单数据
+        records = self.db.get_records_by_filters(
+            store_id=store_id,
+            start_date=start_date,
+            end_date=end_date,
+            reasons=selected_reasons if selected_reasons else None
+        )
+        
+        return records
+
+    def get_current_store_stats(self):
+        """获取当前店铺的统计信息"""
+        current_store = self.store_combo.currentText()
+        if current_store == "全部店铺":
+            # 获取所有店铺的汇总统计
+            return self.get_all_stores_stats()
+        else:
+            # 获取当前店铺的统计
+            return self.get_single_store_stats(current_store)
+
+    def get_single_store_stats(self, store_name):
+        """获取单个店铺的统计信息"""
+        store_id = self.db.get_store_id_by_name(store_name)
+        if not store_id:
+            return {}
+        
+        # 获取日期范围
+        start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+        
+        # 获取店铺设置
+        store_settings = self.store_settings.get(store_name, {})
+        
+        # 获取退款统计
+        refund_stats = self.db.get_refund_stats_by_store(
+            store_id, start_date, end_date
+        )
+        
+        return {
+            "store_settings": store_settings,
+            "refund_stats": refund_stats
+        }
+
+    def get_all_stores_stats(self):
+        """获取所有店铺的汇总统计信息"""
+        # 获取日期范围
+        start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+        
+        # 获取所有店铺的汇总统计
+        refund_stats = self.db.get_refund_stats_all_stores(start_date, end_date)
+        
+        return {
+            "store_settings": {
+                "current_store": "全部店铺",
+                "daily_orders": sum(store.get("daily_orders", 0) for store in self.store_settings.values()),
+                "daily_sales": sum(store.get("daily_sales", 0) for store in self.store_settings.values()),
+                "refund_budget_remaining": sum(store.get("refund_budget_remaining", 0) for store in self.store_settings.values())
+            },
+            "refund_stats": refund_stats
+        }
+
+    def ai_analyze_data(self):
+        """执行AI数据分析"""
+        try:
+            print("[DEBUG] 开始AI分析流程...")
+            
+            # 检查API配置
+            if not self.ai_analyzer.api_key:
+                print("[DEBUG] API Key未配置，显示设置对话框")
+                self.show_api_settings_dialog()
+                return
+            
+            print(f"[DEBUG] API配置检查通过，API URL: {self.ai_analyzer.api_url}")
+            
+            # 收集数据
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            print("[DEBUG] 开始收集分析数据...")
+            analysis_data = self.collect_analysis_data()
+            print(f"[DEBUG] 数据收集完成，订单数量: {len(analysis_data.get('orders', []))}")
+            
+            # 检查数据量
+            if len(analysis_data.get("orders", [])) == 0:
+                QApplication.restoreOverrideCursor()
+                print("[DEBUG] 没有数据可供分析")
+                QMessageBox.information(self, "提示", "当前筛选条件下没有数据可供分析")
+                return
+            
+            # 显示进度对话框
+            progress_dialog = QProgressDialog("正在分析数据...", "取消", 0, 100, self)
+            progress_dialog.setWindowTitle("AI分析中")
+            progress_dialog.setWindowModality(Qt.WindowModal)
+            progress_dialog.setCancelButton(None)  # 移除取消按钮
+            progress_dialog.show()
+            
+            # 在主线程中执行AI分析（避免多线程UI问题）
+            QApplication.processEvents()  # 确保进度条显示
+            progress_dialog.setValue(30)
+            print("[DEBUG] 进度条设置到30%，开始执行AI分析...")
+            
+            # 执行AI分析
+            result = self.ai_analyzer.analyze_data(analysis_data)
+            print(f"[DEBUG] AI分析完成，结果长度: {len(result) if result else 0}")
+            
+            progress_dialog.setValue(100)
+            progress_dialog.close()
+            QApplication.restoreOverrideCursor()
+            
+            # 显示分析结果
+            print("[DEBUG] 显示分析结果...")
+            self.show_analysis_result(result)
+            print("[DEBUG] AI分析流程完成")
+            
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            print(f"[ERROR] AI分析过程中出现异常: {str(e)}")
+            print(f"[ERROR] 异常类型: {type(e).__name__}")
+            import traceback
+            print(f"[ERROR] 详细堆栈信息:\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "AI分析失败", f"分析过程中出现错误：{str(e)}")
+
+    def load_api_config(self):
+        """加载API配置"""
+        config = self.db.load_api_config()
+        self.ai_analyzer.set_api_config(
+            config["api_url"],
+            config["api_key"],
+            config["model"]
+        )
+
+    def show_api_settings_dialog(self):
+        """显示API设置对话框"""
+        dialog = APISettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            settings = dialog.get_settings()
+            self.ai_analyzer.set_api_config(
+                settings["api_url"],
+                settings["api_key"],
+                settings["model"]
+            )
+            # 保存到数据库
+            self.db.save_api_config(
+                settings["api_url"],
+                settings["api_key"],
+                settings["model"]
+            )
+            QMessageBox.information(self, "成功", "API设置已保存")
+
+    def show_analysis_result(self, result):
+        """显示AI分析结果"""
+        dialog = AnalysisResultDialog(result, self)
+        dialog.exec_()
+
     def closeEvent(self, event):
         """关闭窗口时关闭数据库连接"""
         self.db.close()
         event.accept()
 
 # ---------------------------- 高级主题设置对话框 --------------------------------
+# ---------------------------- AI分析功能相关类 ----------------------------
+
+class AIAnalyzer:
+    """AI分析器：负责API调用和响应解析"""
+    
+    def __init__(self, api_url=None, api_key=None, model="deepseek-chat"):
+        self.api_url = api_url or "https://api.deepseek.com/v1/chat/completions"
+        self.api_key = api_key
+        self.model = model
+        
+    def set_api_config(self, api_url, api_key, model):
+        """设置API配置"""
+        self.api_url = api_url
+        self.api_key = api_key
+        self.model = model
+        
+    def analyze_data(self, analysis_data):
+        """分析数据并返回AI响应"""
+        print(f"[DEBUG AIAnalyzer] 开始分析数据，API URL: {self.api_url}")
+        
+        if not self.api_key:
+            raise ValueError("API Key未配置，请先设置API配置")
+            
+        # 构建请求数据
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一名专业的电商售后客服主管，擅长数据分析、问题归因和给出改进建议。请基于以下退款数据，以专业、清晰、有条理的方式输出分析报告。"
+            },
+            {
+                "role": "user",
+                "content": json.dumps(analysis_data, ensure_ascii=False, indent=2)
+            }
+        ]
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4000
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        print(f"[DEBUG AIAnalyzer] 准备发送请求，数据长度: {len(json.dumps(analysis_data))}")
+        
+        try:
+            print(f"[DEBUG AIAnalyzer] 发送请求到: {self.api_url}")
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=60)
+            print(f"[DEBUG AIAnalyzer] 收到响应，状态码: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            result = response.json()
+            print(f"[DEBUG AIAnalyzer] 响应JSON解析成功")
+            
+            if "choices" in result and len(result["choices"]) > 0:
+                content = result["choices"][0]["message"]["content"]
+                print(f"[DEBUG AIAnalyzer] 成功获取AI响应，长度: {len(content)}")
+                return content
+            else:
+                print(f"[DEBUG AIAnalyzer] API返回数据格式异常: {result}")
+                raise ValueError("API返回数据格式异常")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"[DEBUG AIAnalyzer] 网络请求异常: {str(e)}")
+            raise Exception(f"网络请求失败: {str(e)}")
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG AIAnalyzer] JSON解析异常: {str(e)}")
+            print(f"[DEBUG AIAnalyzer] 响应内容: {response.text if 'response' in locals() else '无响应'}")
+            raise Exception(f"JSON解析失败: {str(e)}")
+        except Exception as e:
+            print(f"[DEBUG AIAnalyzer] 其他异常: {str(e)}")
+            raise Exception(f"AI分析失败: {str(e)}")
+
+
+class APISettingsDialog(QDialog):
+    """API设置对话框"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """设置界面"""
+        self.setWindowTitle("AI API设置")
+        self.setFixedSize(500, 300)
+        
+        layout = QVBoxLayout(self)
+        
+        # API地址
+        api_url_layout = QHBoxLayout()
+        api_url_label = QLabel("API地址:")
+        self.api_url_edit = QLineEdit("https://api.deepseek.com/v1/chat/completions")
+        api_url_layout.addWidget(api_url_label)
+        api_url_layout.addWidget(self.api_url_edit)
+        layout.addLayout(api_url_layout)
+        
+        # API Key
+        api_key_layout = QHBoxLayout()
+        api_key_label = QLabel("API Key:")
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        api_key_layout.addWidget(api_key_label)
+        api_key_layout.addWidget(self.api_key_edit)
+        layout.addLayout(api_key_layout)
+        
+        # 模型名称
+        model_layout = QHBoxLayout()
+        model_label = QLabel("模型名称:")
+        self.model_edit = QLineEdit("deepseek-chat")
+        model_layout.addWidget(model_label)
+        model_layout.addWidget(self.model_edit)
+        layout.addLayout(model_layout)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        save_btn = QPushButton("保存")
+        cancel_btn = QPushButton("取消")
+        save_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+        
+        # 加载现有配置
+        self.load_settings()
+        
+    def load_settings(self):
+        """加载现有设置"""
+        if hasattr(self.parent, 'ai_analyzer') and self.parent.ai_analyzer:
+            self.api_url_edit.setText(self.parent.ai_analyzer.api_url or "")
+            self.api_key_edit.setText(self.parent.ai_analyzer.api_key or "")
+            self.model_edit.setText(self.parent.ai_analyzer.model or "")
+            
+    def get_settings(self):
+        """获取设置"""
+        return {
+            "api_url": self.api_url_edit.text().strip(),
+            "api_key": self.api_key_edit.text().strip(),
+            "model": self.model_edit.text().strip()
+        }
+
+
+class AnalysisResultDialog(QDialog):
+    """AI分析结果对话框"""
+    
+    def __init__(self, analysis_result, parent=None):
+        super().__init__(parent)
+        self.analysis_result = analysis_result
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """设置界面"""
+        self.setWindowTitle("AI分析结果")
+        self.resize(900, 700)
+        
+        layout = QVBoxLayout(self)
+        
+        # 结果显示区域 - 支持Markdown格式
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        
+        # 设置Markdown格式显示
+        self.result_text.setMarkdown(self.analysis_result)
+        
+        # 设置字体和样式
+        font = QFont("Microsoft YaHei", 10)
+        self.result_text.setFont(font)
+        
+        # 设置样式表，美化显示效果
+        self.result_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 10px;
+                line-height: 1.6;
+            }
+            QTextEdit:focus {
+                border-color: #007bff;
+            }
+        """)
+        
+        layout.addWidget(self.result_text)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        
+        copy_btn = QPushButton("复制结果")
+        save_md_btn = QPushButton("保存为Markdown")
+        save_html_btn = QPushButton("保存为HTML")
+        close_btn = QPushButton("关闭")
+        
+        copy_btn.clicked.connect(self.copy_result)
+        save_md_btn.clicked.connect(self.save_as_markdown)
+        save_html_btn.clicked.connect(self.save_as_html)
+        close_btn.clicked.connect(self.accept)
+        
+        button_layout.addWidget(copy_btn)
+        button_layout.addWidget(save_md_btn)
+        button_layout.addWidget(save_html_btn)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+    def copy_result(self):
+        """复制结果到剪贴板"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.analysis_result)
+        QMessageBox.information(self, "成功", "分析结果已复制到剪贴板")
+        
+    def save_as_markdown(self):
+        """保存为Markdown文件"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存分析结果", "", "Markdown文件 (*.md)"
+        )
+        if file_path:
+            try:
+                # 添加文件头信息
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                md_content = f"""# AI分析报告
+
+**生成时间**: {timestamp}  
+**报告类型**: 电商售后数据分析  
+
+---
+
+{self.analysis_result}
+
+---
+
+*本报告由AI分析工具自动生成*
+"""
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(md_content)
+                QMessageBox.information(self, "成功", f"分析结果已保存到 {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+        
+    def save_as_html(self):
+        """保存为HTML文件"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存分析结果", "", "HTML文件 (*.html)"
+        )
+        if file_path:
+            try:
+                # 使用markdown库转换为HTML
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # 添加文件头信息
+                md_content = f"""# AI分析报告
+
+**生成时间**: {timestamp}  
+**报告类型**: 电商售后数据分析  
+
+---
+
+{self.analysis_result}
+
+---
+
+*本报告由AI分析工具自动生成*
+"""
+                
+                # 转换为HTML
+                html_content = markdown.markdown(md_content, extensions=['extra'])
+                
+                # 完整的HTML文档
+                full_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI分析报告</title>
+    <style>
+        body {{ 
+            font-family: 'Microsoft YaHei', Arial, sans-serif; 
+            line-height: 1.6; 
+            margin: 40px; 
+            max-width: 1000px;
+            background-color: #f8f9fa;
+        }}
+        h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+        h2 {{ color: #34495e; margin-top: 30px; }}
+        h3 {{ color: #7f8c8d; }}
+        pre {{ 
+            background-color: #2c3e50; 
+            color: #ecf0f1; 
+            padding: 15px; 
+            border-radius: 5px; 
+            overflow-x: auto;
+        }}
+        code {{ background-color: #f1f2f6; padding: 2px 4px; border-radius: 3px; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #3498db; color: white; }}
+        tr:nth-child(even) {{ background-color: #f2f2f2; }}
+        blockquote {{ 
+            border-left: 4px solid #3498db; 
+            margin: 20px 0; 
+            padding-left: 15px; 
+            color: #7f8c8d;
+            font-style: italic;
+        }}
+        hr {{ border: 0; border-top: 2px dashed #bdc3c7; margin: 30px 0; }}
+    </style>
+</head>
+<body>
+{html_content}
+</body>
+</html>"""
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(full_html)
+                QMessageBox.information(self, "成功", f"分析结果已保存到 {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+
+
 # ---------------------------- 主程序入口 ---------------------------------
 if __name__ == '__main__':
     app = QApplication(sys.argv)
