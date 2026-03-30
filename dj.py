@@ -1083,11 +1083,19 @@ class Database:
         return cursor.rowcount > 0
 
     def delete_record(self, record_id):
-        """删除退款记录，返回是否成功"""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM refund_records WHERE id=?', (record_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0  # 返回删除是否成功
+        """删除退款记录，返回是否成功（增强错误处理）"""
+        try:
+            # 检查记录ID是否有效
+            if record_id is None:
+                return False
+                
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM refund_records WHERE id=?', (record_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0  # 返回删除是否成功
+        except Exception as e:
+            print(f"删除记录 {record_id} 时数据库错误: {e}")
+            return False
 
     def get_record_by_id(self, record_id):
         """根据ID获取记录"""
@@ -3092,10 +3100,12 @@ class RefundManager(QMainWindow):
                     if self.db.delete_record(record_id):
                         success_count += 1
                     else:
-                        failed_ids.append(record_id)
+                        # 记录删除失败的ID和原因
+                        failed_ids.append((record_id, "数据库删除操作返回失败"))
                 except Exception as e:
-                    print(f"删除记录 {record_id} 时出错: {e}")
-                    failed_ids.append(record_id)
+                    error_msg = f"删除记录 {record_id} 时出错: {str(e)}"
+                    print(error_msg)
+                    failed_ids.append((record_id, error_msg))
             
             if success_count > 0:
                 if success_count == 1:
@@ -3110,9 +3120,21 @@ class RefundManager(QMainWindow):
                 # 强制刷新表格显示
                 self.table.viewport().update()
                 
-                # 如果有失败的删除，显示警告
+                # 如果有失败的删除，显示详细警告
                 if failed_ids:
-                    QMessageBox.warning(self, "部分失败", f"成功删除 {success_count} 条记录，但 {len(failed_ids)} 条记录删除失败！")
+                    # 构建详细的失败信息
+                    failed_info = f"成功删除 {success_count} 条记录，但 {len(failed_ids)} 条记录删除失败！\n\n"
+                    failed_info += "失败记录详情：\n"
+                    
+                    for i, (record_id, error_msg) in enumerate(failed_ids[:5]):  # 最多显示5条
+                        failed_info += f"{i+1}. 记录ID: {record_id} - 原因: {error_msg}\n"
+                    
+                    if len(failed_ids) > 5:
+                        failed_info += f"...等{len(failed_ids) - 5}条记录失败\n"
+                    
+                    failed_info += "\n建议：请检查数据库连接或重启程序后重试。"
+                    
+                    QMessageBox.warning(self, "部分删除失败", failed_info)
             else:
                 QMessageBox.warning(self, "错误", "所有记录删除失败！")
 
@@ -3692,16 +3714,27 @@ class RefundManager(QMainWindow):
             self.load_table_data()
 
     def get_record_id_from_row(self, row):
-        """根据行号获取记录ID"""
-        order_no_item = self.table.item(row, 1)  # 订单号列
-        if not order_no_item:
+        """根据行号获取记录ID（增强错误处理）"""
+        try:
+            # 检查行号是否有效
+            if row < 0 or row >= self.table.rowCount():
+                return None
+                
+            order_no_item = self.table.item(row, 1)  # 订单号列
+            if not order_no_item:
+                return None
+                
+            order_no = order_no_item.text().strip()
+            if not order_no:
+                return None
+                
+            record = self.db.get_record_by_order_no(order_no)
+            if record and 'id' in record:
+                return record['id']
             return None
-            
-        order_no = order_no_item.text()
-        records = self.db.get_record_by_order_no(order_no)
-        if records:
-            return records['id']
-        return None
+        except Exception as e:
+            print(f"获取行 {row} 的记录ID时出错: {e}")
+            return None
 
     def toggle_status_field(self, row, column):
         """双击切换状态字段（撤销、打款补偿、驳回）"""
