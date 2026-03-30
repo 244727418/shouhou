@@ -1467,39 +1467,66 @@ class RefundManager(QMainWindow):
         store_info_layout = QVBoxLayout()
         store_info_group.setLayout(store_info_layout)
         
-        # 顶部：店铺名称显示、退款预算剩余和设置按钮
-        top_row_layout = QHBoxLayout()
+        # 顶部：店铺信息显示区域（两行布局）
+        top_info_layout = QVBoxLayout()
+        top_info_layout.setSpacing(6)  # 设置行间距
         
-        # 店铺名称显示（直接显示信息录入板块选择的店铺）
+        # 第一行：当前店铺和订单量
+        first_row_layout = QHBoxLayout()
+        
+        # 店铺名称显示
         current_store_label_title = QLabel("当前店铺：")
-        current_store_label_title.setStyleSheet("font-size: 16px; font-weight: bold;")
-        top_row_layout.addWidget(current_store_label_title)
+        current_store_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        first_row_layout.addWidget(current_store_label_title)
         self.current_store_label = QLabel("未选择")
-        self.current_store_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2E8B57;")
-        top_row_layout.addWidget(self.current_store_label)
+        self.current_store_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        first_row_layout.addWidget(self.current_store_label)
         
         # 添加弹性空间
-        top_row_layout.addStretch()
+        first_row_layout.addStretch()
         
-        # 日退款预算剩余（移动到当前店铺和设置按钮之间）
+        # 订单量显示
+        orders_label_title = QLabel("订单量：")
+        orders_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        first_row_layout.addWidget(orders_label_title)
+        self.orders_label = QLabel("0单")
+        self.orders_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        first_row_layout.addWidget(self.orders_label)
+        
+        # 第二行：销售金额和退款预算剩余
+        second_row_layout = QHBoxLayout()
+        
+        # 销售金额显示
+        sales_label_title = QLabel("销售金额：")
+        sales_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        second_row_layout.addWidget(sales_label_title)
+        self.sales_label = QLabel("¥0.00")
+        self.sales_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        second_row_layout.addWidget(self.sales_label)
+        
+        # 添加弹性空间
+        second_row_layout.addStretch()
+        
+        # 日退款预算剩余
         daily_budget_label_title = QLabel("退款预算剩余：")
         daily_budget_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
-        top_row_layout.addWidget(daily_budget_label_title)
+        second_row_layout.addWidget(daily_budget_label_title)
         self.daily_budget_remaining_label = QLabel("¥0.00")
         self.daily_budget_remaining_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #FF6B6B;")
-        top_row_layout.addWidget(self.daily_budget_remaining_label)
-        
-        # 添加弹性空间
-        top_row_layout.addStretch()
+        second_row_layout.addWidget(self.daily_budget_remaining_label)
         
         # 店铺基本信息设置按钮（小齿轮图标）
         self.store_settings_btn = QPushButton("⚙")
         self.store_settings_btn.setStyleSheet("QPushButton { font-size: 18px; border: 1px solid #ccc; border-radius: 3px; }")
         self.store_settings_btn.setToolTip("店铺基本信息设置")
         self.store_settings_btn.clicked.connect(self.open_store_settings)
-        top_row_layout.addWidget(self.store_settings_btn)
+        second_row_layout.addWidget(self.store_settings_btn)
         
-        store_info_layout.addLayout(top_row_layout)
+        # 将两行布局添加到垂直布局中
+        top_info_layout.addLayout(first_row_layout)
+        top_info_layout.addLayout(second_row_layout)
+        
+        store_info_layout.addLayout(top_info_layout)
         
         # 店铺统计信息（标题进一步增大）
         store_stats_label_title = QLabel("统计信息")
@@ -1987,6 +2014,11 @@ class RefundManager(QMainWindow):
         current_store = self.search_store_combo.currentText() if self.search_store_combo.currentText() else "未选择"
         self.current_store_label.setText(current_store)
         
+        # 更新订单量和销售金额
+        orders_sales = self.calculate_orders_and_sales()
+        self.orders_label.setText(f"{orders_sales['orders']}单")
+        self.sales_label.setText(f"¥{orders_sales['sales']:.2f}")
+        
         # 更新日退款预算剩余
         daily_budget_remaining = self.calculate_daily_budget_remaining()
         self.daily_budget_remaining_label.setText(f"¥{daily_budget_remaining:.2f}")
@@ -2059,6 +2091,43 @@ class RefundManager(QMainWindow):
                 total_refund += record['refund_amount']
         
         return max(0.0, total_refund_budget - total_refund)
+
+    def calculate_orders_and_sales(self):
+        """计算订单量和销售金额（用户设置值*筛选天数）"""
+        try:
+            if not self.store_settings:
+                return {"orders": 0, "sales": 0.0}
+            
+            # 获取筛选的天数
+            start_date = self.start_date_edit.date().toPyDate()
+            end_date = self.end_date_edit.date().toPyDate()
+            days_count = (end_date - start_date).days + 1  # 计算筛选的天数
+            
+            # 安全地获取用户设置的日订单量和日销售金额，并进行类型转换
+            daily_orders_str = self.store_settings.get('daily_orders', '0')
+            daily_sales_str = self.store_settings.get('daily_sales', '0.0')
+            
+            # 转换为数值类型，处理可能的异常
+            try:
+                daily_orders = int(daily_orders_str) if daily_orders_str else 0
+            except (ValueError, TypeError):
+                daily_orders = 0
+                
+            try:
+                daily_sales = float(daily_sales_str) if daily_sales_str else 0.0
+            except (ValueError, TypeError):
+                daily_sales = 0.0
+            
+            # 计算多天的总订单量和总销售金额
+            total_orders = daily_orders * days_count
+            total_sales = daily_sales * days_count
+            
+            return {"orders": total_orders, "sales": total_sales}
+            
+        except Exception as e:
+            # 如果出现任何异常，返回默认值
+            print(f"计算订单量和销售金额时出错: {e}")
+            return {"orders": 0, "sales": 0.0}
 
     def calculate_today_refund_amount(self, date):
         """计算指定日期的退款金额（基于当前筛选条件）"""
