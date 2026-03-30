@@ -1473,6 +1473,23 @@ class RefundManager(QMainWindow):
         self.import_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
         self.export_btn = QPushButton("导出订单")
         self.export_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
+        self.clear_highlight_btn = QPushButton("清除高亮")
+        self.clear_highlight_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                padding: 3px 8px;
+                background-color: #2196F3;
+                color: white;
+                border: 1px solid #1976D2;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
         
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.update_btn)
@@ -1480,6 +1497,7 @@ class RefundManager(QMainWindow):
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.import_btn)
         btn_layout.addWidget(self.export_btn)
+        btn_layout.addWidget(self.clear_highlight_btn)
         btn_layout.addStretch()
         input_layout.addLayout(btn_layout, 3, 0, 1, 7)  # 修改为第3行
 
@@ -1490,6 +1508,7 @@ class RefundManager(QMainWindow):
         self.clear_btn.clicked.connect(self.clear_input)
         self.import_btn.clicked.connect(self.import_excel)
         self.export_btn.clicked.connect(self.export_excel)
+        self.clear_highlight_btn.clicked.connect(self.clear_highlight)
 
         # 刷新表格按钮 - 添加在添加记录按钮下方
         refresh_btn_layout = QHBoxLayout()
@@ -3248,8 +3267,12 @@ class RefundManager(QMainWindow):
                 self.table.setItem(row, 10, notes_item)
 
             # 高亮刚导入的订单（覆盖店铺颜色）
+            # 注意：状态列（撤销、打款补偿、驳回、驳回结果）不高亮，保持原有的绿色/红色背景
             if rec['order_no'] in self.highlighted_orders:
                 for col in range(11):
+                    # 跳过状态列：第4列(撤销)、第5列(打款补偿)、第7列(驳回)、第8列(驳回结果)
+                    if col in [4, 5, 7, 8]:
+                        continue
                     if self.table.item(row, col):
                         self.table.item(row, col).setBackground(QColor("#FFD700"))  # 金色高亮
         
@@ -3940,6 +3963,19 @@ class RefundManager(QMainWindow):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
         self.show_tooltip("已复制", "rgba(76, 175, 80, 0.95)", 1000)  # 绿色气泡显示1秒
+
+    def clear_highlight(self):
+        """清除刚导入订单的金色高亮（不是清除用户鼠标选中的高亮）"""
+        # 清除高亮订单集合（只清除刚导入订单的金色高亮标记）
+        if hasattr(self, 'highlighted_orders'):
+            self.highlighted_orders.clear()
+            print("[DEBUG] 已清除高亮订单集合")
+        
+        # 重新加载表格数据，清除金色高亮显示
+        self.load_table_data()
+        
+        # 显示绿色提示
+        self.show_tooltip("已清除高亮", "rgba(76, 175, 80, 0.95)", 1000)
 
     def refresh_table_format(self):
         """刷新表格格式，清除导入后的高亮显示"""
