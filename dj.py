@@ -1113,7 +1113,7 @@ class RefundManager(QMainWindow):
     def init_ui(self):
         self.setWindowTitle("电商售后品质退款管理工具")
         # 【窗口默认尺寸设置】第451行 - 修改这里的数字来改变窗口默认大小
-        self.resize(1400, 950)  # 窗口宽度1400像素，高度950像素
+        self.resize(1700, 950)  # 窗口宽度1700像素，高度950像素
         self.setMinimumSize(0, 0)  # 设置窗口最小尺寸，允许适当缩小
         
         # 应用护眼配色样式表
@@ -4776,10 +4776,15 @@ class RefundManager(QMainWindow):
             # 获取本地表格显示的总行数（当前显示的所有记录）
             local_count = self.table.rowCount() if hasattr(self, 'table') else 0
             
+            # 获取本地表格所有记录数（不管筛选不筛选，所有存在的记录）
+            all_local_records = self.db.get_all_records() if hasattr(self, 'db') else []
+            all_local_count = len(all_local_records)
+            
             # 显示核对结果（简化显示，只显示总条数）
             result_msg = f"📊 数据核对结果\n\n"
             result_msg += f"• 数据库总记录数：{total_db_count} 条\n"
-            result_msg += f"• 本地表格总记录数：{local_count} 条\n\n"
+            result_msg += f"• 当前显示的条数：{local_count} 条\n"
+            result_msg += f"• 本地表格所有记录数：{all_local_count} 条\n\n"
             
             if total_db_count == local_count:
                 result_msg += "✅ 数据一致！数据库和本地表格记录数匹配。"
@@ -4843,11 +4848,15 @@ class RefundManager(QMainWindow):
                     
                     # 重新检查一致性
                     new_local_count = self.table.rowCount() if hasattr(self, 'table') else 0
+                    new_all_local_records = self.db.get_all_records() if hasattr(self, 'db') else []
+                    new_all_local_count = len(new_all_local_records)
                     if new_local_count == total_db_count:
                         QMessageBox.information(self, "同步成功", 
                                                f"✅ 数据同步完成！\n\n"
                                                f"数据库数据已下载到本地表格。\n"
-                                               f"本地表格现在显示 {new_local_count} 条记录，与数据库一致。")
+                                               f"当前显示的条数：{new_local_count} 条\n"
+                                               f"本地表格所有记录数：{new_all_local_count} 条\n"
+                                               f"与数据库一致。")
                     else:
                         # 如果仍然不一致，显示调试信息
                         debug_records = self.db.debug_database_records()
@@ -4857,7 +4866,7 @@ class RefundManager(QMainWindow):
                         
                         QMessageBox.warning(self, "同步失败", 
                                            f"同步后仍然不一致。\n"
-                                           f"数据库：{total_db_count}条，本地：{new_local_count}条\n\n"
+                                           f"数据库：{total_db_count}条，当前显示：{new_local_count}条\n\n"
                                            f"调试信息：\n{debug_info}")
                 elif clicked_button == force_sync_btn:
                     # 强制全局同步：彻底清理所有不一致数据
@@ -4883,6 +4892,8 @@ class RefundManager(QMainWindow):
                     # 重新检查一致性
                     new_total_db_count = self.db.get_total_record_count()
                     new_local_count = self.table.rowCount() if hasattr(self, 'table') else 0
+                    new_all_local_records = self.db.get_all_records() if hasattr(self, 'db') else []
+                    new_all_local_count = len(new_all_local_records)
                     
                     if sync_result['total_cleaned'] > 0:
                         QMessageBox.information(self, "强制同步完成", 
@@ -4894,7 +4905,8 @@ class RefundManager(QMainWindow):
                                                f"• 总计清理：{sync_result['total_cleaned']} 条\n\n"
                                                f"同步后：\n"
                                                f"• 数据库总记录数：{new_total_db_count} 条\n"
-                                               f"• 本地表格显示记录数：{new_local_count} 条")
+                                               f"• 当前显示的条数：{new_local_count} 条\n"
+                                               f"• 本地表格所有记录数：{new_all_local_count} 条")
                     else:
                         QMessageBox.information(self, "无需清理", "数据库中没有发现不一致数据。")
                 elif clicked_button == cleanup_btn:
@@ -4904,13 +4916,16 @@ class RefundManager(QMainWindow):
                     # 重新检查一致性
                     new_total_db_count = self.db.get_total_record_count()
                     new_local_count = self.table.rowCount() if hasattr(self, 'table') else 0
+                    new_all_local_records = self.db.get_all_records() if hasattr(self, 'db') else []
+                    new_all_local_count = len(new_all_local_records)
                     
                     if deleted_count > 0:
                         QMessageBox.information(self, "清理完成", 
                                                f"成功清理 {deleted_count} 条孤儿记录！\n\n"
                                                f"清理后：\n"
                                                f"• 数据库总记录数：{new_total_db_count} 条\n"
-                                               f"• 本地表格显示记录数：{new_local_count} 条")
+                                               f"• 当前显示的条数：{new_local_count} 条\n"
+                                               f"• 本地表格所有记录数：{new_all_local_count} 条")
                     else:
                         QMessageBox.information(self, "无需清理", "数据库中没有发现孤儿记录。")
                 elif clicked_button == refresh_btn:
