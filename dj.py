@@ -1035,6 +1035,53 @@ class Database:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def update_record_partial(self, record_id, **kwargs):
+        """智能增量更新记录：只更新提供的字段，保护未提供的字段"""
+        if not kwargs:
+            return False
+        
+        # 构建动态SQL更新语句
+        set_clauses = []
+        params = []
+        
+        # 支持的字段映射
+        field_mapping = {
+            'store_id': 'store_id',
+            'order_no': 'order_no', 
+            'reason': 'reason',
+            'refund_amount': 'refund_amount',
+            'cancel': 'cancel',
+            'compensate': 'compensate',
+            'comp_amount': 'comp_amount',
+            'reject': 'reject',
+            'reject_result': 'reject_result',
+            'notes': 'notes',
+            'record_date': 'record_date'
+        }
+        
+        # 处理每个提供的字段
+        for field, value in kwargs.items():
+            if field in field_mapping:
+                # 处理布尔值转换为整数
+                if field in ['cancel', 'compensate', 'reject']:
+                    value = 1 if value else 0
+                set_clauses.append(f"{field_mapping[field]}=?")
+                params.append(value)
+        
+        if not set_clauses:
+            return False
+            
+        # 添加记录ID作为WHERE条件
+        params.append(record_id)
+        
+        # 执行更新
+        cursor = self.conn.cursor()
+        sql = f"UPDATE refund_records SET {', '.join(set_clauses)} WHERE id=?"
+        cursor.execute(sql, params)
+        self.conn.commit()
+        
+        return cursor.rowcount > 0
+
     def delete_record(self, record_id):
         """删除退款记录，返回是否成功"""
         cursor = self.conn.cursor()
@@ -4297,8 +4344,101 @@ class RefundManager(QMainWindow):
         duplicate_orders = []  # 存储重复订单信息
         valid_rows = []  # 存储有效的行数据
         
-        # 第一步：预处理所有数据，收集重复订单信息
-        for row in data_rows:
+        # 第一步：合并Excel文件中的重复订单（同一个订单号出现多次）
+        merged_data_rows = []
+        order_no_groups = {}
+        
+        # 按订单号分组，识别Excel中的重复订单
+        for row_idx, row in enumerate(data_rows):
+            try:
+                # 使用列映射获取订单号
+                order_no = ''
+                if '订单号' in column_mapping:
+                    actual_order_col = column_mapping['订单号']
+                    order_no = str(row.get(actual_order_col, '')).strip()
+                
+                if order_no:
+                    if order_no not in order_no_groups:
+                        order_no_groups[order_no] = []
+                    order_no_groups[order_no].append((row_idx, row))
+            except:
+                pass
+        
+        # 处理重复订单合并
+        merge_info = []
+        for order_no, rows in order_no_groups.items():
+            if len(rows) > 1:
+                # 发现重复订单，进行金额合并
+                total_refund_amount = 0.0
+                total_comp_amount = 0.0
+                first_row_data = None
+                
+                for row_idx, row in rows:
+                    # 获取退款金额
+                    refund_amount = 0.0
+                    if '退款金额' in column_mapping:
+                        actual_amount_col = column_mapping['退款金额']
+                        refund_amount = row.get(actual_amount_col)
+                    try:
+                        refund_amount = float(refund_amount) if refund_amount else 0.0
+                    except:
+                        refund_amount = 0.0
+                    
+                    # 获取补偿金额
+                    comp_amount = 0.0
+                    if '补偿金额' in column_mapping:
+                        actual_comp_amount_col = column_mapping['补偿金额']
+                        comp_amount = row.get(actual_comp_amount_col, 0)
+                    try:
+                        comp_amount = float(comp_amount) if comp_amount else 0.0
+                    except:
+                        comp_amount = 0.0
+                    
+                    total_refund_amount += refund_amount
+                    total_comp_amount += comp_amount
+                    
+                    # 保存第一个订单的数据作为基础
+                    if first_row_data is None:
+                        first_row_data = row
+                
+                # 创建合并后的订单数据
+                if first_row_data:
+                    merged_row = first_row_data.copy()
+                    # 更新合并后的金额
+                    if '退款金额' in column_mapping:
+                        actual_amount_col = column_mapping['退款金额']
+                        merged_row[actual_amount_col] = total_refund_amount
+                    if '补偿金额' in column_mapping:
+                        actual_comp_amount_col = column_mapping['补偿金额']
+                        merged_row[actual_comp_amount_col] = total_comp_amount
+                    
+                    # 添加合并备注
+                    if '备注' in column_mapping:
+                        actual_notes_col = column_mapping['备注']
+                        original_notes = merged_row.get(actual_notes_col, '')
+                        merge_note = f"合并了{len(rows)}条重复记录，退款金额合计：{total_refund_amount:.2f}元"
+                        if total_comp_amount > 0:
+                            merge_note += f"，补偿金额合计：{total_comp_amount:.2f}元"
+                        
+                        if original_notes:
+                            merged_row[actual_notes_col] = f"{original_notes} | {merge_note}"
+                        else:
+                            merged_row[actual_notes_col] = merge_note
+                    
+                    merged_data_rows.append(merged_row)
+                    merge_info.append(f"订单号 {order_no}: 合并{len(rows)}条记录，退款金额={total_refund_amount:.2f}元")
+            else:
+                # 没有重复，直接添加
+                merged_data_rows.append(rows[0][1])
+        
+        # 显示合并信息（如果有重复订单）
+        if merge_info:
+            merge_summary = f"发现并合并了 {len(merge_info)} 个重复订单：\n\n"
+            merge_summary += "\n".join(merge_info)
+            QMessageBox.information(self, "重复订单合并", merge_summary)
+        
+        # 第二步：预处理所有数据，收集重复订单信息（针对软件数据库中的重复）
+        for row in merged_data_rows:
             try:
                 # 使用列映射获取正确的字段值
                 store_name = ''
@@ -4522,40 +4662,96 @@ class RefundManager(QMainWindow):
                 # 添加详细的日期识别调试信息
                 print(f"[DEBUG] 最终日期结果：{record_date}")
 
-                # 处理店铺：获取或创建
-                store_id = None
-                stores = self.db.get_stores()
-                for sid, sname in stores:
-                    if sname == store_name:
-                        store_id = sid
-                        break
-                if store_id is None:
-                    # 自动添加店铺
-                    store_id = self.db.add_store(store_name)
-                    if store_id is None:
-                        fail_count += 1
-                        continue
-                    self.load_stores()  # 刷新下拉框
-
-                # 检查订单号是否存在
+                # 智能店铺名称识别策略
+                # 1. 首先检查订单号是否在软件数据库中存在
                 existing = self.db.get_record_by_order_no(order_no)
+                
                 if existing:
-                    # 比较数据是否一致
-                    same = (existing['store_name'] == store_name and
-                            existing['reason'] == reason and
-                            abs(existing['refund_amount'] - refund_amount) < 0.01 and
-                            existing['cancel'] == cancel and
-                            existing['compensate'] == compensate and
-                            abs(existing['comp_amount'] - comp_amount) < 0.01 and
-                            existing['reject'] == reject and
-                            existing['reject_result'] == reject_result and
-                            existing['notes'] == notes and
-                            existing['record_date'] == record_date)
+                    # 订单号存在：使用软件中已有的店铺名称（增量存储策略）
+                    store_name = existing['store_name']  # 使用软件中已有的店铺名称
+                    store_id = existing['store_id']
+                    print(f"[DEBUG] 订单号 {order_no} 已存在，使用软件中的店铺：{store_name}")
+                else:
+                    # 订单号不存在：检查Excel表格是否有店铺名称列
+                    if '店铺名称' in column_mapping and store_name:
+                        # Excel有店铺名称列：使用Excel中的店铺名称
+                        print(f"[DEBUG] 订单号 {order_no} 不存在，使用Excel中的店铺：{store_name}")
+                    else:
+                        # Excel没有店铺名称列：使用当前搜索筛选选择的店铺名称
+                        current_search_store = self.search_store_combo.currentText()
+                        if current_search_store and current_search_store != "全部":
+                            store_name = current_search_store
+                            print(f"[DEBUG] 订单号 {order_no} 不存在，Excel无店铺列，使用搜索筛选店铺：{store_name}")
+                        else:
+                            # 没有选择具体店铺，跳过该行
+                            fail_count += 1
+                            continue
+                    
+                    # 获取或创建店铺
+                    store_id = None
+                    stores = self.db.get_stores()
+                    for sid, sname in stores:
+                        if sname == store_name:
+                            store_id = sid
+                            break
+                    if store_id is None:
+                        # 自动添加店铺
+                        store_id = self.db.add_store(store_name)
+                        if store_id is None:
+                            fail_count += 1
+                            continue
+                        self.load_stores()  # 刷新下拉框
+
+                # 检查订单号是否存在（再次检查，因为上面可能已经获取了existing）
+                if existing:
+                    # 记录识别到的字段信息（用于增量覆盖）
+                    detected_fields = {}
+                    
+                    # 退款金额必须更新（变量字段）
+                    detected_fields['refund_amount'] = refund_amount
+                    
+                    # 只更新识别到的字段
+                    if '退款原因' in column_mapping:
+                        detected_fields['reason'] = reason
+                    if '撤销' in column_mapping:
+                        detected_fields['cancel'] = cancel
+                    if '打款补偿' in column_mapping:
+                        detected_fields['compensate'] = compensate
+                    if '补偿金额' in column_mapping:
+                        detected_fields['comp_amount'] = comp_amount
+                    if '驳回' in column_mapping:
+                        detected_fields['reject'] = reject
+                    if '驳回结果' in column_mapping:
+                        detected_fields['reject_result'] = reject_result
+                    if '备注' in column_mapping:
+                        detected_fields['notes'] = notes
+                    if '登记日期' in column_mapping and record_date:
+                        detected_fields['record_date'] = record_date
+                    
+                    # 比较数据是否一致（只比较识别到的字段）
+                    same = True
+                    for field, new_value in detected_fields.items():
+                        if field == 'refund_amount':
+                            if abs(existing['refund_amount'] - new_value) >= 0.01:
+                                same = False
+                                break
+                        elif field == 'cancel' or field == 'compensate' or field == 'reject':
+                            if existing[field] != new_value:
+                                same = False
+                                break
+                        elif field == 'comp_amount':
+                            if abs(existing['comp_amount'] - new_value) >= 0.01:
+                                same = False
+                                break
+                        else:
+                            if existing[field] != new_value:
+                                same = False
+                                break
                     if same:
                         skip_count += 1
                         continue
                     else:
-                        # 记录重复订单信息
+                        # 记录重复订单信息（包含识别到的字段信息）
                         duplicate_orders.append({
                             'order_no': order_no,
                             'existing_data': existing,
@@ -4571,7 +4767,8 @@ class RefundManager(QMainWindow):
                                 'reject_result': reject_result,
                                 'notes': notes,
                                 'record_date': record_date
-                            }
+                            },
+                            'detected_fields': detected_fields  # 记录识别到的字段信息
                         })
                 else:
                     # 新增订单，直接添加到有效行
@@ -4638,7 +4835,7 @@ class RefundManager(QMainWindow):
             clicked_button = msg_box.clickedButton()
             
             if clicked_button == overwrite_all_btn:
-                # 覆盖所有重复订单（处理店铺名称不一致）
+                # 智能增量覆盖所有重复订单
                 current_search_store = self.search_store_combo.currentText()
                 for dup in duplicate_orders:
                     existing_store = dup['existing_data']['store_name']
@@ -4659,23 +4856,34 @@ class RefundManager(QMainWindow):
                             dup['new_data']['store_id'] = current_store_id
                             dup['new_data']['store_name'] = current_search_store
                     
-                    self.db.update_record(dup['existing_data']['id'], 
-                                         dup['new_data']['store_id'],
-                                         dup['new_data']['order_no'],
-                                         dup['new_data']['reason'],
-                                         dup['new_data']['refund_amount'],
-                                         dup['new_data']['cancel'],
-                                         dup['new_data']['compensate'],
-                                         dup['new_data']['comp_amount'],
-                                         dup['new_data']['reject'],
-                                         dup['new_data']['reject_result'],
-                                         dup['new_data']['notes'],
-                                         dup['new_data']['record_date'])
+                    # 智能增量更新：只更新识别到的字段
+                    update_fields = {}
+                    
+                    # 退款金额必须更新（变量字段）
+                    update_fields['refund_amount'] = dup['new_data']['refund_amount']
+                    
+                    # 只更新识别到的字段
+                    if 'detected_fields' in dup:
+                        for field, value in dup['detected_fields'].items():
+                            if field != 'refund_amount':  # 退款金额已经单独处理
+                                update_fields[field] = value
+                    
+                    # 使用智能增量更新函数
+                    if update_fields:
+                        self.db.update_record_partial(dup['existing_data']['id'], **update_fields)
+                        print(f"[DEBUG] 智能增量更新订单 {dup['order_no']}，更新的字段：{list(update_fields.keys())}")
+                    
                     overwrite_count += 1
                     self.highlighted_orders.add(dup['order_no'])
                     
-                    # 立即刷新表格显示，确保状态变化实时显示
+                    # 强制清除缓存并立即刷新表格显示，确保状态变化实时显示
+                    self._cached_records = None
+                    self._last_search_params = None
                     self.load_table_data(force_reload=True)
+                    
+                    # 额外强制刷新：确保数据完全更新
+                    self.table.viewport().update()
+                    QApplication.processEvents()  # 处理所有挂起的事件
             elif clicked_button == skip_all_btn:
                 # 跳过所有重复订单
                 skip_count += duplicate_count
@@ -4735,7 +4943,7 @@ class RefundManager(QMainWindow):
                     clicked_review_button = review_msg_box.clickedButton()
                     
                     if clicked_review_button == overwrite_btn:
-                        # 覆盖此订单（处理店铺名称不一致）
+                        # 智能增量覆盖此订单（处理店铺名称不一致）
                         current_search_store = self.search_store_combo.currentText()
                         if existing['store_name'] != new_data['store_name'] and current_search_store and current_search_store != "全部":
                             # 获取当前店铺的ID
@@ -4751,23 +4959,34 @@ class RefundManager(QMainWindow):
                                 new_data['store_id'] = current_store_id
                                 new_data['store_name'] = current_search_store
                         
-                        self.db.update_record(existing['id'], 
-                                             new_data['store_id'],
-                                             new_data['order_no'],
-                                             new_data['reason'],
-                                             new_data['refund_amount'],
-                                             new_data['cancel'],
-                                             new_data['compensate'],
-                                             new_data['comp_amount'],
-                                             new_data['reject'],
-                                             new_data['reject_result'],
-                                             new_data['notes'],
-                                             new_data['record_date'])
+                        # 智能增量更新：只更新识别到的字段
+                        update_fields = {}
+                        
+                        # 退款金额必须更新（变量字段）
+                        update_fields['refund_amount'] = new_data['refund_amount']
+                        
+                        # 只更新识别到的字段
+                        if 'detected_fields' in dup:
+                            for field, value in dup['detected_fields'].items():
+                                if field != 'refund_amount':  # 退款金额已经单独处理
+                                    update_fields[field] = value
+                        
+                        # 使用智能增量更新函数
+                        if update_fields:
+                            self.db.update_record_partial(existing['id'], **update_fields)
+                            print(f"[DEBUG] 智能增量更新订单 {dup['order_no']}，更新的字段：{list(update_fields.keys())}")
+                        
                         overwrite_count += 1
                         self.highlighted_orders.add(dup['order_no'])
                         
-                        # 立即刷新表格显示，确保状态变化实时显示
+                        # 强制清除缓存并立即刷新表格显示，确保状态变化实时显示
+                        self._cached_records = None
+                        self._last_search_params = None
                         self.load_table_data(force_reload=True)
+                        
+                        # 额外强制刷新：确保数据完全更新
+                        self.table.viewport().update()
+                        QApplication.processEvents()  # 处理所有挂起的事件
                     elif clicked_review_button == skip_btn:
                         # 跳过此订单
                         skip_count += 1
@@ -4836,6 +5055,10 @@ class RefundManager(QMainWindow):
         # 智能刷新表格：根据当前筛选条件决定是否显示所有记录
         current_search_store = self.search_store_combo.currentText()
         
+        # 强制清除所有缓存，确保数据完全刷新
+        self._cached_records = None
+        self._last_search_params = None
+        
         # 如果当前选择了具体店铺，导入的数据应该立即显示
         if current_search_store and current_search_store != "全部":
             # 保持当前筛选条件，但强制刷新表格
@@ -4844,8 +5067,9 @@ class RefundManager(QMainWindow):
             # 没有选择具体店铺，导入后显示所有记录
             self.load_table_data(force_reload=True)
         
-        # 强制刷新表格显示
+        # 强制刷新表格显示并处理所有挂起的事件
         self.table.viewport().update()
+        QApplication.processEvents()  # 处理所有挂起的事件，确保界面完全更新
         
         # 检查导入的记录是否显示
         displayed_count = self.table.rowCount()
