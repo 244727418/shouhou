@@ -5,6 +5,30 @@ import json
 import requests
 import markdown
 from datetime import datetime, timedelta
+import matplotlib
+matplotlib.use('Qt5Agg')  # 设置matplotlib使用Qt5后端
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.dates as mdates
+import numpy as np
+
+# 配置中文字体支持
+import matplotlib.font_manager as fm
+
+# 尝试使用系统字体，避免斜体问题
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun']  # 设置中文字体优先级
+plt.rcParams['font.size'] = 8  # 设置更小的默认字体大小
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+plt.rcParams['figure.titlesize'] = 9   # 图表标题字体大小
+plt.rcParams['axes.titlesize'] = 8    # 轴标题字体大小
+plt.rcParams['axes.labelsize'] = 7     # 轴标签字体大小
+plt.rcParams['xtick.labelsize'] = 6   # X轴刻度标签字体大小
+plt.rcParams['ytick.labelsize'] = 6   # Y轴刻度标签字体大小
+plt.rcParams['legend.fontsize'] = 6   # 图例字体大小
+
+# 强制设置字体为非斜体
+plt.rcParams['font.style'] = 'normal'
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -1973,11 +1997,9 @@ class RefundManager(QMainWindow):
         ai_analysis_layout.addStretch()
         ai_chart_layout.addLayout(ai_analysis_layout)
         
-        # 图表区域（预留）
-        chart_label = QLabel("图表功能开发中...")
-        chart_label.setStyleSheet("color: #666; font-style: italic; margin-top: 10px;")
-        chart_label.setAlignment(Qt.AlignCenter)
-        ai_chart_layout.addWidget(chart_label)
+        # 图表区域
+        self.chart_widget = ChartWidget(self, self.db)
+        ai_chart_layout.addWidget(self.chart_widget, 1)  # 1表示拉伸因子，让图表占据剩余空间
         
         top_horizontal_layout.addWidget(ai_chart_group)
         
@@ -3742,6 +3764,9 @@ class RefundManager(QMainWindow):
         # 性能优化：合并统计更新，避免重复计算
         self._update_all_statistics(records)
         
+        # 更新图表显示
+        self.update_current_chart()
+        
         # 清除高亮标记（高亮持续到下次加载，但我们保留一个标记，下次加载时会重新根据集合高亮，直到用户点击表格）
         # 注意：用户点击表格时清除高亮，通过table的itemClicked信号实现
 
@@ -3837,6 +3862,23 @@ class RefundManager(QMainWindow):
         self.update_total_amount_display()
         # 更新店铺统计信息显示
         self.update_store_stats_display()
+    
+    def get_current_records_for_chart(self):
+        """获取当前筛选条件下的记录用于图表显示"""
+        # 获取当前筛选条件下的记录
+        records = self.get_current_filtered_records()
+        
+        # 获取日期范围
+        start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+        
+        return records, start_date, end_date
+    
+    def update_current_chart(self):
+        """更新当前图表显示"""
+        if hasattr(self, 'chart_widget'):
+            records, start_date, end_date = self.get_current_records_for_chart()
+            self.chart_widget.update_chart(records, start_date, end_date)
 
     def reset_search(self):
         """重置搜索条件"""
@@ -6907,6 +6949,686 @@ class AnalysisResultDialog(QDialog):
                 QMessageBox.information(self, "成功", f"分析结果已保存到 {file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+
+
+# ---------------------------- 图表组件类 ---------------------------------
+class ChartWidget(QWidget):
+    """图表展示组件"""
+    
+    # 退款原因列表（固定）
+    REASON_LIST = [
+        "商品腐败、变质、包装胀气等",
+        "商品破损/压坏", 
+        "质量问题",
+        "大小/规格/重量等与商品描述不符",
+        "品种/标签/图片/包装等与商品描述不符",
+        "货物与描述不符",
+        "其他"
+    ]
+    
+    def __init__(self, parent=None, db=None):
+        super().__init__(parent)
+        self.db = db
+        self.current_chart_index = 0  # 0:柱状图, 1:饼图, 2:曲线图
+        self.chart_types = ["退款原因柱状图", "退款原因饼图", "时间曲线图"]
+        # 数据缓存，供放大窗口使用
+        self.current_records = []
+        self.current_start_date = ""
+        self.current_end_date = ""
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 顶部：切换控制区域
+        control_layout = QHBoxLayout()
+        
+        # 左箭头按钮
+        self.prev_btn = QPushButton("◀")
+        self.prev_btn.setFixedSize(40, 30)
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+        """)
+        self.prev_btn.clicked.connect(self.prev_chart)
+        control_layout.addWidget(self.prev_btn)
+        
+        # 图表标题
+        self.title_label = QLabel(self.chart_types[self.current_chart_index])
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+        control_layout.addWidget(self.title_label, 1)
+        
+        # 右箭头按钮
+        self.next_btn = QPushButton("▶")
+        self.next_btn.setFixedSize(40, 30)
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+        """)
+        self.next_btn.clicked.connect(self.next_chart)
+        control_layout.addWidget(self.next_btn)
+        
+        layout.addLayout(control_layout)
+        
+        # 中间：图表区域
+        self.figure = Figure(figsize=(6, 4), dpi=100)  # 调整图表尺寸
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setMinimumSize(300, 200)  # 调整最小尺寸
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.canvas, 1)
+        
+        # 底部：放大按钮
+        self.enlarge_btn = QPushButton("点击放大")
+        self.enlarge_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 12px;
+                padding: 5px 10px;
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #2471a3;
+            }
+        """)
+        self.enlarge_btn.clicked.connect(self.show_enlarged_window)
+        layout.addWidget(self.enlarge_btn)
+        
+        # 初始显示空图表
+        self.show_empty_chart()
+    
+    def update_chart(self, records, start_date, end_date):
+        """根据当前图表类型更新显示"""
+        print(f"[DEBUG update_chart] 当前图表索引: {self.current_chart_index}, 记录数: {len(records)}")
+        
+        if not records:
+            print("[DEBUG update_chart] 无数据，显示空图表")
+            self.show_empty_chart()
+            return
+        
+        try:
+            if self.current_chart_index == 0:
+                print("[DEBUG update_chart] 绘制柱状图")
+                self.draw_bar_chart(records)
+            elif self.current_chart_index == 1:
+                print("[DEBUG update_chart] 绘制饼图")
+                self.draw_pie_chart(records)
+            elif self.current_chart_index == 2:
+                print("[DEBUG update_chart] 绘制曲线图")
+                self.draw_line_chart(records, start_date, end_date)
+            else:
+                print(f"[DEBUG update_chart] 未知图表索引: {self.current_chart_index}")
+                self.show_empty_chart()
+        except Exception as e:
+            print(f"[ERROR] 图表更新失败: {e}")
+            import traceback
+            traceback.print_exc()
+            self.show_empty_chart()
+    
+    def draw_bar_chart(self, records):
+        """绘制柱状图"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        # 统计每个退款原因的数量
+        reason_counts = {reason: 0 for reason in self.REASON_LIST}
+        for record in records:
+            reason = record.get('reason', '')
+            if reason in reason_counts:
+                reason_counts[reason] += 1
+        
+        # 准备数据
+        reasons = list(reason_counts.keys())
+        counts = list(reason_counts.values())
+        
+        # 创建柱状图
+        bars = ax.bar(range(len(reasons)), counts, color='#2E8B57', alpha=0.8)
+        
+        # 设置图表样式
+        ax.set_title('退款原因分布（柱状图）', fontweight='bold')
+        ax.set_xlabel('退款原因')
+        ax.set_ylabel('订单数量')
+        
+        # 设置X轴标签（支持换行）
+        formatted_reasons = []
+        for reason in reasons:
+            # 每6个字符换行
+            formatted_reason = '\n'.join([reason[i:i+6] for i in range(0, len(reason), 6)])
+            formatted_reasons.append(formatted_reason)
+        
+        ax.set_xticks(range(len(reasons)))
+        ax.set_xticklabels(formatted_reasons, rotation=0)
+        
+        # 在每个柱子上方显示数字
+        for i, (bar, count) in enumerate(zip(bars, counts)):
+            height = bar.get_height()
+            if height > 0:
+                ax.text(i, height + 0.1, f'{count}', ha='center', va='bottom')
+        
+        # 设置Y轴范围
+        ax.set_ylim(0, max(counts) * 1.1 if counts else 10)
+        
+        # 调整布局
+        self.figure.tight_layout()
+        self.canvas.draw()
+    
+    def draw_pie_chart(self, records):
+        """绘制饼图（带小方框和箭头指示）"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        # 统计每个退款原因的数量
+        reason_counts = {reason: 0 for reason in self.REASON_LIST}
+        for record in records:
+            reason = record.get('reason', '')
+            if reason in reason_counts:
+                reason_counts[reason] += 1
+        
+        # 过滤掉数量为0的原因
+        filtered_reasons = []
+        filtered_counts = []
+        for reason, count in reason_counts.items():
+            if count > 0:
+                filtered_reasons.append(reason)
+                filtered_counts.append(count)
+        
+        if not filtered_counts:
+            self.show_empty_chart()
+            return
+        
+        # 合并占比小于3%的原因为"其他"
+        total = sum(filtered_counts)
+        if total > 0:
+            other_count = 0
+            new_reasons = []
+            new_counts = []
+            
+            for reason, count in zip(filtered_reasons, filtered_counts):
+                percentage = (count / total) * 100
+                if percentage < 3:
+                    other_count += count
+                else:
+                    new_reasons.append(reason)
+                    new_counts.append(count)
+            
+            if other_count > 0:
+                new_reasons.append("其他")
+                new_counts.append(other_count)
+            
+            filtered_reasons = new_reasons
+            filtered_counts = new_counts
+        
+        # 创建饼图（不显示默认标签）
+        colors = plt.cm.Set3(np.linspace(0, 1, len(filtered_reasons)))
+        # 当labels=None和autopct=None时，只返回2个值
+        pie_result = ax.pie(filtered_counts, labels=None, autopct=None,
+                           colors=colors, startangle=90)
+        wedges = pie_result[0]
+        texts = pie_result[1] if len(pie_result) > 1 else []
+        
+        # 设置饼图样式
+        ax.set_title('退款原因分布（饼图）', fontweight='bold')
+        
+        # 添加自定义标签（带小方框和箭头）
+        bbox_props = dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8, edgecolor="black")
+        kw = dict(arrowprops=dict(arrowstyle="->", color="black"), bbox=bbox_props, zorder=0, va="center")
+        
+        for i, (wedge, reason, count) in enumerate(zip(wedges, filtered_reasons, filtered_counts)):
+            ang = (wedge.theta2 - wedge.theta1) / 2. + wedge.theta1
+            y = np.sin(np.deg2rad(ang))
+            x = np.cos(np.deg2rad(ang))
+            
+            # 计算百分比
+            percentage = (count / total) * 100
+            
+            # 确定标签位置（根据角度调整）
+            horizontalalignment = 'left' if x > 0 else 'right'
+            connectionstyle = f"angle,angleA=0,angleB={ang}"
+            kw["arrowprops"].update({"connectionstyle": connectionstyle})
+            
+            # 创建标签文本
+            label_text = f"{reason}\n{count}单 ({percentage:.1f}%)"
+            
+            # 添加带箭头的标签
+            ax.annotate(label_text, xy=(x, y), xytext=(1.35*np.sign(x), 1.4*y),
+                       horizontalalignment=horizontalalignment, fontsize=7, **kw)
+        
+        # 调整布局
+        self.figure.tight_layout()
+        self.canvas.draw()
+    
+    def draw_line_chart(self, records, start_date, end_date):
+        """绘制时间曲线图"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        # 将日期字符串转换为datetime对象
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        except:
+            self.show_empty_chart()
+            return
+        
+        # 生成日期范围
+        date_range = []
+        current_dt = start_dt
+        while current_dt <= end_dt:
+            date_range.append(current_dt)
+            current_dt += timedelta(days=1)
+        
+        # 按日期和原因统计订单数量
+        date_reason_counts = {}
+        for record in records:
+            record_date_str = record.get('record_date', '')
+            reason = record.get('reason', '')
+            
+            if not record_date_str or reason not in self.REASON_LIST:
+                continue
+            
+            try:
+                record_date = datetime.strptime(record_date_str, '%Y-%m-%d')
+                if start_dt <= record_date <= end_dt:
+                    date_key = record_date.strftime('%Y-%m-%d')
+                    if date_key not in date_reason_counts:
+                        date_reason_counts[date_key] = {reason: 0 for reason in self.REASON_LIST}
+                    date_reason_counts[date_key][reason] += 1
+            except:
+                continue
+        
+        # 为每个原因创建数据序列
+        colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+        
+        for i, reason in enumerate(self.REASON_LIST):
+            counts = []
+            for date_dt in date_range:
+                date_key = date_dt.strftime('%Y-%m-%d')
+                count = date_reason_counts.get(date_key, {}).get(reason, 0)
+                counts.append(count)
+            
+            # 只有当该原因有数据时才绘制
+            if sum(counts) > 0:
+                ax.plot(date_range, counts, label=reason, color=colors[i], marker='o', markersize=3)
+        
+        # 设置图表样式
+        ax.set_title('退款原因时间趋势（曲线图）', fontweight='bold')
+        ax.set_xlabel('日期')
+        ax.set_ylabel('订单数量')
+        
+        # 设置X轴日期格式
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+        
+        # 如果日期范围超过30天，调整X轴标签间隔
+        days_count = (end_dt - start_dt).days
+        if days_count > 30:
+            ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+        elif days_count > 90:
+            ax.xaxis.set_major_locator(mdates.MonthLocator())
+        
+        # 添加图例
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # 旋转X轴标签
+        ax.tick_params(axis='x', rotation=45)
+        
+        # 调整布局
+        self.figure.tight_layout()
+        self.canvas.draw()
+    
+    def show_empty_chart(self):
+        """显示空数据提示"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.text(0.5, 0.5, '暂无数据', fontsize=16, ha='center', va='center', 
+               transform=ax.transAxes, color='gray')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        self.canvas.draw()
+    
+    def prev_chart(self):
+        """切换到上一个图表"""
+        self.current_chart_index = (self.current_chart_index - 1) % len(self.chart_types)
+        self.title_label.setText(self.chart_types[self.current_chart_index])
+        print(f"[DEBUG] 切换到图表: {self.chart_types[self.current_chart_index]}")
+        
+        # 延迟刷新图表数据（确保数据加载完成）
+        QTimer.singleShot(100, self.force_refresh_chart)  # 100毫秒延迟
+    
+    def next_chart(self):
+        """切换到下一个图表"""
+        self.current_chart_index = (self.current_chart_index + 1) % len(self.chart_types)
+        self.title_label.setText(self.chart_types[self.current_chart_index])
+        print(f"[DEBUG] 切换到图表: {self.chart_types[self.current_chart_index]}")
+        
+        # 延迟刷新图表数据（确保数据加载完成）
+        QTimer.singleShot(100, self.force_refresh_chart)  # 100毫秒延迟
+    
+    def force_refresh_chart(self):
+        """强制刷新图表数据"""
+        records = []
+        start_date = ""
+        end_date = ""
+        
+        print("[DEBUG 强制刷新] 开始强制刷新图表数据")
+        
+        # 先显示加载状态
+        self.show_loading_chart()
+        
+        # 获取主窗口引用（通过层层向上查找）
+        main_window = self._get_main_window()
+        
+        if main_window:
+            print("[DEBUG 强制刷新] 找到主窗口，使用主窗口方法刷新")
+            # 使用主窗口的刷新机制（与筛选时间相同）
+            main_window.load_table_data(force_reload=True)
+            
+            # 给数据加载一点时间
+            QTimer.singleShot(50, lambda: self._refresh_data_with_main_window(main_window))
+        else:
+            print("[DEBUG 强制刷新] 未找到主窗口，使用备用方法")
+            # 备用方法：直接尝试方式2
+            QTimer.singleShot(50, lambda: self._refresh_data_after_delay(2))
+    
+    def _get_main_window(self):
+        """获取主窗口引用"""
+        # 方法1：尝试通过父组件链向上查找
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'load_table_data'):
+                print(f"[DEBUG 主窗口查找] 找到主窗口: {type(parent)}")
+                return parent
+            parent = parent.parent()
+        
+        # 方法2：尝试通过应用程序查找
+        app = QApplication.instance()
+        if app:
+            for widget in app.allWidgets():
+                if hasattr(widget, 'load_table_data') and widget.isWindow():
+                    print(f"[DEBUG 主窗口查找] 通过应用程序找到主窗口: {type(widget)}")
+                    return widget
+        
+        print("[DEBUG 主窗口查找] 未找到主窗口")
+        return None
+    
+    def _refresh_data_with_main_window(self, main_window):
+        """使用主窗口刷新数据"""
+        records = []
+        start_date = ""
+        end_date = ""
+        
+        print("[DEBUG 主窗口刷新] 使用主窗口方法获取数据")
+        
+        # 方式1：使用主窗口的标准方法
+        if hasattr(main_window, 'get_current_records_for_chart'):
+            try:
+                records, start_date, end_date = main_window.get_current_records_for_chart()
+                print(f"[DEBUG 主窗口刷新] 方式1获取到 {len(records)} 条记录")
+            except Exception as e:
+                print(f"[DEBUG 主窗口刷新] 方式1失败: {e}")
+                records = []
+        
+        # 方式2：如果方式1失败，使用筛选方法
+        if not records and hasattr(main_window, 'get_current_filtered_records'):
+            try:
+                records = main_window.get_current_filtered_records()
+                start_date = main_window.start_date_edit.date().toString("yyyy-MM-dd")
+                end_date = main_window.end_date_edit.date().toString("yyyy-MM-dd")
+                print(f"[DEBUG 主窗口刷新] 方式2获取到 {len(records)} 条记录")
+            except Exception as e:
+                print(f"[DEBUG 主窗口刷新] 方式2失败: {e}")
+                records = []
+        
+        # 最终更新图表
+        self._final_update_chart(records, start_date, end_date)
+    
+    def _refresh_data_after_delay(self, method):
+        """延迟后刷新数据"""
+        records = []
+        start_date = ""
+        end_date = ""
+        
+        print(f"[DEBUG 延迟刷新] 开始方式{method}数据获取")
+        
+        if method == 1:
+            try:
+                records, start_date, end_date = self.parent().get_current_records_for_chart()
+                print(f"[DEBUG 延迟刷新] 方式1获取到 {len(records)} 条记录")
+            except Exception as e:
+                print(f"[DEBUG 延迟刷新] 方式1失败: {e}")
+                records = []
+        
+        # 如果方式1失败，尝试方式2
+        if not records and hasattr(self.parent(), 'get_current_filtered_records'):
+            print("[DEBUG 延迟刷新] 尝试方式2：直接获取")
+            try:
+                records = self.parent().get_current_filtered_records()
+                start_date = self.parent().start_date_edit.date().toString("yyyy-MM-dd")
+                end_date = self.parent().end_date_edit.date().toString("yyyy-MM-dd")
+                print(f"[DEBUG 延迟刷新] 方式2获取到 {len(records)} 条记录")
+                
+                # 如果方式2也返回空数据，添加详细调试
+                if not records:
+                    print("[DEBUG 延迟刷新] 方式2返回空数据，检查父组件状态:")
+                    print(f"[DEBUG 延迟刷新] - 父组件类型: {type(self.parent())}")
+                    print(f"[DEBUG 延迟刷新] - 父组件方法存在性: {hasattr(self.parent(), 'get_current_filtered_records')}")
+                    
+                    # 尝试直接调用数据库获取数据
+                    if hasattr(self.parent(), 'db'):
+                        print("[DEBUG 延迟刷新] 尝试直接查询数据库")
+                        try:
+                            # 获取所有记录作为测试
+                            all_records = self.parent().db.get_all_records()
+                            print(f"[DEBUG 延迟刷新] 数据库总记录数: {len(all_records)}")
+                            
+                            # 尝试使用默认筛选条件
+                            default_records = self.parent().db.get_records_by_filters()
+                            print(f"[DEBUG 延迟刷新] 默认筛选记录数: {len(default_records)}")
+                        except Exception as db_e:
+                            print(f"[DEBUG 延迟刷新] 数据库查询失败: {db_e}")
+            except Exception as e:
+                print(f"[DEBUG 延迟刷新] 方式2失败: {e}")
+                records = []
+        
+        # 最终更新图表
+        self._final_update_chart(records, start_date, end_date)
+    
+    def _final_update_chart(self, records, start_date, end_date):
+        """最终更新图表"""
+        if not records:
+            print("[DEBUG 最终更新] 无数据，使用空图表")
+            self.show_empty_chart()
+        else:
+            print(f"[DEBUG 最终更新] 使用 {len(records)} 条记录更新图表")
+            # 保存当前数据，供放大窗口使用
+            self.current_records = records
+            self.current_start_date = start_date
+            self.current_end_date = end_date
+            self.update_chart(records, start_date, end_date)
+    
+    def show_loading_chart(self):
+        """显示加载中的图表"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        # 显示加载提示
+        ax.text(0.5, 0.5, '加载中...', fontsize=12, ha='center', va='center', 
+                transform=ax.transAxes, color='gray')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')  # 隐藏坐标轴
+        
+        self.canvas.draw()
+    
+    def show_enlarged_window(self):
+        """显示放大的图表窗口"""
+        print("[DEBUG 放大窗口] 开始显示放大窗口")
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"图表放大 - {self.chart_types[self.current_chart_index]}")
+        dialog.resize(900, 700)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 创建放大版的图表组件（自定义版本，不包含放大按钮）
+        enlarged_widget = EnlargedChartWidget(dialog, self.db)
+        enlarged_widget.current_chart_index = self.current_chart_index
+        enlarged_widget.title_label.setText(self.chart_types[self.current_chart_index])
+        layout.addWidget(enlarged_widget)
+        
+        # 添加关闭按钮
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        
+        # 同步图表数据（使用多种方式确保数据正确）
+        records = []
+        start_date = ""
+        end_date = ""
+        
+        # 方式1：通过父组件获取
+        if hasattr(self.parent(), 'get_current_records_for_chart'):
+            print("[DEBUG 放大窗口] 尝试方式1：通过父组件获取数据")
+            try:
+                records, start_date, end_date = self.parent().get_current_records_for_chart()
+                print(f"[DEBUG 放大窗口] 方式1获取到 {len(records)} 条记录")
+            except Exception as e:
+                print(f"[DEBUG 放大窗口] 方式1失败: {e}")
+        
+        # 方式2：如果方式1失败，尝试直接获取
+        if not records and hasattr(self.parent(), 'get_current_filtered_records'):
+            print("[DEBUG 放大窗口] 尝试方式2：直接获取数据")
+            try:
+                records = self.parent().get_current_filtered_records()
+                start_date = self.parent().start_date_edit.date().toString("yyyy-MM-dd")
+                end_date = self.parent().end_date_edit.date().toString("yyyy-MM-dd")
+                print(f"[DEBUG 放大窗口] 方式2获取到 {len(records)} 条记录")
+            except Exception as e:
+                print(f"[DEBUG 放大窗口] 方式2失败: {e}")
+        
+        # 方式3：如果仍然没有数据，使用当前图表的数据
+        if not records and hasattr(self, 'current_records'):
+            print("[DEBUG 放大窗口] 尝试方式3：使用当前图表数据")
+            records = getattr(self, 'current_records', [])
+            start_date = getattr(self, 'current_start_date', "")
+            end_date = getattr(self, 'current_end_date', "")
+            print(f"[DEBUG 放大窗口] 方式3获取到 {len(records)} 条记录")
+        
+        if records:
+            print(f"[DEBUG 放大窗口] 最终同步 {len(records)} 条记录到放大窗口")
+            enlarged_widget.update_chart(records, start_date, end_date)
+        else:
+            print("[DEBUG 放大窗口] 无数据可用，显示空图表")
+            enlarged_widget.show_empty_chart()
+        
+        dialog.exec_()
+
+
+class EnlargedChartWidget(ChartWidget):
+    """放大窗口专用的图表组件（不包含放大按钮）"""
+    
+    def init_ui(self):
+        """初始化界面（不包含放大按钮）"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 顶部：切换控制区域
+        control_layout = QHBoxLayout()
+        
+        # 左箭头按钮
+        self.prev_btn = QPushButton("◀")
+        self.prev_btn.setFixedSize(40, 30)
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+        """)
+        self.prev_btn.clicked.connect(self.prev_chart)
+        control_layout.addWidget(self.prev_btn)
+        
+        # 图表标题
+        self.title_label = QLabel(self.chart_types[self.current_chart_index])
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+        control_layout.addWidget(self.title_label, 1)
+        
+        # 右箭头按钮
+        self.next_btn = QPushButton("▶")
+        self.next_btn.setFixedSize(40, 30)
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+        """)
+        self.next_btn.clicked.connect(self.next_chart)
+        control_layout.addWidget(self.next_btn)
+        
+        layout.addLayout(control_layout)
+        
+        # 中间：图表区域（放大尺寸）
+        self.figure = Figure(figsize=(10, 8), dpi=100)  # 更大的图表尺寸
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setMinimumSize(800, 600)  # 更大的最小尺寸
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.canvas, 1)
+        
+        # 初始显示空图表
+        self.show_empty_chart()
 
 
 # ---------------------------- 主程序入口 ---------------------------------
