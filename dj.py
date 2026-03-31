@@ -1233,7 +1233,7 @@ class Database:
             })
         return results
 
-    def get_records_by_filters(self, store_id=None, start_date=None, end_date=None, reasons=None):
+    def get_records_by_filters(self, store_id=None, start_date=None, end_date=None, reasons=None, order_no=None):
         """根据筛选条件获取记录"""
         cursor = self.conn.cursor()
         
@@ -1263,6 +1263,10 @@ class Database:
             query += f' AND r.reason IN ({placeholders})'
             params.extend(reasons)
             
+        if order_no:
+            query += ' AND r.order_no LIKE ?'
+            params.append(f'%{order_no}%')
+            
         query += ' ORDER BY r.record_date DESC, r.id DESC'
         
         cursor.execute(query, params)
@@ -1277,7 +1281,7 @@ class Database:
             })
         return results
 
-    def get_refund_stats_by_store(self, store_id, start_date, end_date):
+    def get_refund_stats_by_store(self, store_id, start_date, end_date, reasons=None):
         """获取单个店铺的退款统计"""
         cursor = self.conn.cursor()
         
@@ -1296,7 +1300,15 @@ class Database:
             WHERE store_id = ? AND record_date BETWEEN ? AND ?
         '''
         
-        cursor.execute(query, (store_id, start_date, end_date))
+        params = [store_id, start_date, end_date]
+        
+        # 添加退款原因筛选
+        if reasons:
+            placeholders = ','.join(['?'] * len(reasons))
+            query += f' AND reason IN ({placeholders})'
+            params.extend(reasons)
+        
+        cursor.execute(query, params)
         row = cursor.fetchone()
         
         if not row:
@@ -1354,7 +1366,7 @@ class Database:
             'reject_success_rate': round(reject_success_rate, 2)
         }
 
-    def get_refund_stats_all_stores(self, start_date, end_date):
+    def get_refund_stats_all_stores(self, start_date, end_date, reasons=None):
         """获取所有店铺的汇总退款统计"""
         cursor = self.conn.cursor()
         
@@ -1373,7 +1385,15 @@ class Database:
             WHERE record_date BETWEEN ? AND ?
         '''
         
-        cursor.execute(query, (start_date, end_date))
+        params = [start_date, end_date]
+        
+        # 添加退款原因筛选
+        if reasons:
+            placeholders = ','.join(['?'] * len(reasons))
+            query += f' AND reason IN ({placeholders})'
+            params.extend(reasons)
+        
+        cursor.execute(query, params)
         row = cursor.fetchone()
         
         if not row:
@@ -1528,11 +1548,12 @@ class RefundManager(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.addWidget(main_splitter)
         
-        # 上部区域：水平分割器（左右分割）
+        # 上部区域：水平分割器（三列分割）
         top_splitter = QSplitter(Qt.Horizontal)
         top_splitter.setChildrenCollapsible(False)  # 禁止折叠子部件
         top_splitter.setStretchFactor(0, 1)  # 左侧信息录入区可拉伸
-        top_splitter.setStretchFactor(1, 1)  # 右侧店铺信息区可拉伸
+        top_splitter.setStretchFactor(1, 1)  # 中间AI分析区可拉伸
+        top_splitter.setStretchFactor(2, 1)  # 右侧店铺信息区可拉伸
         
         # 下部区域：水平分割器（左右分割）
         bottom_splitter = QSplitter(Qt.Horizontal)
@@ -1544,11 +1565,6 @@ class RefundManager(QMainWindow):
         # 将上下分割器添加到主分割器
         main_splitter.addWidget(top_splitter)
         main_splitter.addWidget(bottom_splitter)
-        
-        # 设置分割器最小尺寸，防止折叠和瞬间变0
-        main_splitter.setMinimumSize(800, 600)  # 主窗口最小尺寸
-        top_splitter.setMinimumSize(0, 0)        # 上部区域最小尺寸：左右都为0，完全自由调整
-        bottom_splitter.setMinimumSize(200, 300) # 下部区域最小尺寸：左200，右300
         
         # 保存分割器引用，用于记忆功能
         self.main_splitter = main_splitter
@@ -1827,26 +1843,6 @@ class RefundManager(QMainWindow):
         btn_layout.addWidget(self.export_btn)
         btn_layout.addWidget(self.clear_highlight_btn)
         
-        # AI分析按钮
-        self.ai_analyze_btn = QPushButton("AI分析")
-        self.ai_analyze_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                padding: 3px 8px;
-                background-color: #9C27B0;
-                color: white;
-                border: 1px solid #7B1FA2;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #7B1FA2;
-            }
-            QPushButton:pressed {
-                background-color: #6A1B9A;
-            }
-        """)
-        btn_layout.addWidget(self.ai_analyze_btn)
-        
         btn_layout.addStretch()
         input_layout.addLayout(btn_layout, 3, 0, 1, 7)  # 修改为第3行
 
@@ -1858,7 +1854,6 @@ class RefundManager(QMainWindow):
         self.import_btn.clicked.connect(self.import_excel)
         self.export_btn.clicked.connect(self.export_excel)
         self.clear_highlight_btn.clicked.connect(self.clear_highlight)
-        self.ai_analyze_btn.clicked.connect(self.ai_analyze_data)
 
         # 刷新表格按钮 - 添加在添加记录按钮下方
         refresh_btn_layout = QHBoxLayout()
@@ -1899,6 +1894,92 @@ class RefundManager(QMainWindow):
         
         # 左侧：信息录入区
         top_horizontal_layout.addWidget(input_group)
+        
+        # 中间：AI分析与图表数据板块
+        ai_chart_group = QGroupBox("AI分析与图表数据")
+        ai_chart_layout = QVBoxLayout()
+        ai_chart_group.setLayout(ai_chart_layout)
+        
+        # AI分析功能区域
+        ai_analysis_layout = QHBoxLayout()
+        
+        # AI分析按钮
+        self.ai_analyze_btn = QPushButton("AI分析")
+        self.ai_analyze_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                padding: 6px 12px;
+                background-color: #9C27B0;
+                color: white;
+                border: 1px solid #7B1FA2;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+            QPushButton:pressed {
+                background-color: #6A1B9A;
+            }
+        """)
+        self.ai_analyze_btn.clicked.connect(self.ai_analyze_data)
+        ai_analysis_layout.addWidget(self.ai_analyze_btn)
+        
+        # 调试按钮 - 显示API输入内容
+        self.debug_btn = QPushButton("调试")
+        self.debug_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                padding: 6px 12px;
+                background-color: #FF9800;
+                color: white;
+                border: 1px solid #F57C00;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #EF6C00;
+            }
+        """)
+        self.debug_btn.clicked.connect(self.show_debug_info)
+        self.debug_btn.setToolTip("查看本次AI分析的输入数据")
+        ai_analysis_layout.addWidget(self.debug_btn)
+        
+        # API设置按钮
+        self.api_settings_btn = QPushButton("API设置")
+        self.api_settings_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                padding: 6px 12px;
+                background-color: #2196F3;
+                color: white;
+                border: 1px solid #1976D2;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        self.api_settings_btn.clicked.connect(self.show_api_settings_dialog)
+        ai_analysis_layout.addWidget(self.api_settings_btn)
+        
+        ai_analysis_layout.addStretch()
+        ai_chart_layout.addLayout(ai_analysis_layout)
+        
+        # 图表区域（预留）
+        chart_label = QLabel("图表功能开发中...")
+        chart_label.setStyleSheet("color: #666; font-style: italic; margin-top: 10px;")
+        chart_label.setAlignment(Qt.AlignCenter)
+        ai_chart_layout.addWidget(chart_label)
+        
+        top_horizontal_layout.addWidget(ai_chart_group)
         
         # 右侧：店铺信息区
         store_info_group = QGroupBox("店铺信息与统计")
@@ -2266,9 +2347,20 @@ class RefundManager(QMainWindow):
         table_layout.addWidget(self.table)
         
         # 将区域添加到分割器中
-        # 上部区域：信息录入区（左）和店铺信息区（右）
+        # 上部区域：信息录入区（左）、AI分析区（中）、店铺信息区（右）
         top_splitter.addWidget(input_group)           # 左：信息录入区
+        top_splitter.addWidget(ai_chart_group)        # 中：AI分析与图表数据
         top_splitter.addWidget(store_info_group)      # 右：店铺信息区
+        
+        # 设置分割器最小尺寸，防止折叠和瞬间变0
+        main_splitter.setMinimumSize(1000, 700)  # 主窗口最小尺寸（增大以适应三列布局）
+        top_splitter.setMinimumSize(300, 0)      # 上部区域最小宽度：每列至少300px
+        bottom_splitter.setMinimumSize(200, 300) # 下部区域最小尺寸：左200，右300
+        
+        # 设置各板块的最小尺寸，确保布局合理
+        input_group.setMinimumSize(300, 0)       # 信息录入区最小宽度
+        ai_chart_group.setMinimumSize(250, 0)    # AI分析区最小宽度
+        store_info_group.setMinimumSize(300, 0)  # 店铺信息区最小宽度
         
         # 删除上部区域最小宽度限制，让用户完全自由调整
         
@@ -3518,6 +3610,10 @@ class RefundManager(QMainWindow):
         # 获取筛选参数用于调试标签
         order_no = self.search_order_edit.text()
         reason = self.search_reason_combo.checkedItems()
+        
+        # 更新退款原因筛选条件
+        self.selected_reasons = set(reason)
+        
         if not reason:
             reason = "全部"
         store_name = self.search_store_combo.currentText()
@@ -6084,14 +6180,23 @@ class RefundManager(QMainWindow):
         return record['id'] if record else None
 
     def collect_analysis_data(self):
-        """收集当前筛选条件下的数据用于AI分析"""
-        # 获取当前筛选条件下的订单数据
+        """收集当前筛选条件下的数据用于AI分析（使用搜索筛选板块的数据）"""
+        # 获取当前搜索筛选条件下的订单数据（跟随搜索筛选板块）
         records = self.get_current_filtered_records()
         
-        # 获取店铺统计信息
+        # 获取当前搜索筛选条件下的店铺统计信息
         store_stats = self.get_current_store_stats()
         
-        # 构建分析数据
+        # 调试信息：显示当前筛选条件
+        print(f"[DEBUG 数据收集] 当前筛选条件:")
+        print(f"[DEBUG 数据收集] - 店铺: {self.search_store_combo.currentText()}")
+        print(f"[DEBUG 数据收集] - 日期: {self.start_date_edit.date().toString('yyyy-MM-dd')} 到 {self.end_date_edit.date().toString('yyyy-MM-dd')}")
+        print(f"[DEBUG 数据收集] - 退款原因: {list(self.selected_reasons)}")
+        print(f"[DEBUG 数据收集] - 订单号筛选: {self.search_order_edit.text()}")
+        print(f"[DEBUG 数据收集] - 表格显示行数: {self.table.rowCount()}")
+        print(f"[DEBUG 数据收集] - 数据库返回记录数: {len(records)}")
+        
+        # 构建分析数据（优化格式，按店铺分类）
         analysis_data = {
             "analysis_period": {
                 "start_date": self.start_date_edit.date().toString("yyyy-MM-dd"),
@@ -6099,14 +6204,36 @@ class RefundManager(QMainWindow):
             },
             "store_settings": store_stats.get("store_settings", {}),
             "refund_stats": store_stats.get("refund_stats", {}),
-            "orders": []
+            "orders_by_store": {}
         }
         
-        # 处理订单数据
+        # 按店铺分类组织订单数据（使用搜索筛选板块的店铺选择）
+        current_store = self.search_store_combo.currentText()
+        
+        # 自动检测当前筛选条件下的店铺分布
+        store_names = set()
         for record in records:
+            store_name = record.get("store_name", "未知店铺")
+            store_names.add(store_name)
+        
+        print(f"[DEBUG] 当前筛选条件下检测到 {len(store_names)} 个店铺: {list(store_names)}")
+        
+        # 按店铺分类组织订单数据
+        print(f"[DEBUG 数据分类] 开始处理 {len(records)} 条记录")
+        
+        for i, record in enumerate(records):
+            store_name = record.get("store_name", "未知店铺")
+            
+            # 调试每个记录的店铺信息
+            if i < 5:  # 只显示前5条记录的详细信息
+                print(f"[DEBUG 数据分类] 记录 {i+1}: 店铺='{store_name}', 订单号='{record.get('order_no', '')}', 原因='{record.get('reason', '')}'")
+            
+            if store_name not in analysis_data["orders_by_store"]:
+                analysis_data["orders_by_store"][store_name] = []
+                print(f"[DEBUG 数据分类] 发现新店铺: {store_name}")
+            
+            # 发送完整的退款相关信息（除订单号外）
             order_data = {
-                "store_name": record.get("store_name", ""),
-                "order_no": record.get("order_no", ""),
                 "reason": record.get("reason", ""),
                 "refund_amount": float(record.get("refund_amount", 0)),
                 "cancel": "是" if record.get("cancel", 0) else "否",
@@ -6114,19 +6241,31 @@ class RefundManager(QMainWindow):
                 "comp_amount": float(record.get("comp_amount", 0)),
                 "reject": "是" if record.get("reject", 0) else "否",
                 "reject_result": record.get("reject_result", "无"),
-                "record_date": record.get("record_date", ""),
-                "notes": record.get("notes", "")
+                "notes": record.get("notes", "")  # 备注最重要，包含产品型号和问题描述
             }
-            analysis_data["orders"].append(order_data)
+            
+            analysis_data["orders_by_store"][store_name].append(order_data)
+        
+        # 检查最终分类结果
+        print(f"[DEBUG 数据分类] 最终分类结果: {len(analysis_data['orders_by_store'])} 个店铺")
+        for store_name, orders in analysis_data["orders_by_store"].items():
+            print(f"[DEBUG 数据分类] 店铺 '{store_name}': {len(orders)} 条订单")
+        
+        # 统计信息
+        total_orders = sum(len(orders) for orders in analysis_data["orders_by_store"].values())
+        analysis_data["total_orders_count"] = total_orders
+        analysis_data["store_count"] = len(analysis_data["orders_by_store"])
+        
+        print(f"[DEBUG] 数据收集完成: {total_orders} 个订单, {len(analysis_data['orders_by_store'])} 个店铺")
         
         return analysis_data
 
     def get_current_filtered_records(self):
         """获取当前筛选条件下的订单记录"""
-        # 获取当前店铺ID
+        # 获取当前店铺ID（使用搜索筛选板块的店铺选择）
         store_id = None
-        current_store = self.store_combo.currentText()
-        if current_store and current_store != "全部店铺":
+        current_store = self.search_store_combo.currentText()
+        if current_store and current_store != "全部":
             store_id = self.db.get_store_id_by_name(current_store)
         
         # 获取日期范围
@@ -6136,27 +6275,54 @@ class RefundManager(QMainWindow):
         # 获取退款原因筛选
         selected_reasons = list(self.selected_reasons)
         
+        # 获取订单号筛选
+        order_no_filter = self.search_order_edit.text().strip()
+        
+        print(f"[DEBUG 数据筛选] 店铺选择: {current_store}, 店铺ID: {store_id}")
+        print(f"[DEBUG 数据筛选] 日期范围: {start_date} 到 {end_date}")
+        print(f"[DEBUG 数据筛选] 退款原因筛选: {selected_reasons}")
+        print(f"[DEBUG 数据筛选] 退款原因筛选数量: {len(selected_reasons)}")
+        print(f"[DEBUG 数据筛选] 订单号筛选: '{order_no_filter}'")
+        
         # 获取订单数据
         records = self.db.get_records_by_filters(
             store_id=store_id,
             start_date=start_date,
             end_date=end_date,
-            reasons=selected_reasons if selected_reasons else None
+            reasons=selected_reasons if selected_reasons else None,
+            order_no=order_no_filter if order_no_filter else None
         )
+        
+        print(f"[DEBUG 数据筛选] 数据库返回记录数: {len(records)}")
+        
+        # 检查记录中的店铺分布
+        if records:
+            store_distribution = {}
+            for record in records:
+                store_name = record.get("store_name", "未知店铺")
+                if store_name not in store_distribution:
+                    store_distribution[store_name] = 0
+                store_distribution[store_name] += 1
+            
+            print(f"[DEBUG 数据筛选] 店铺分布: {store_distribution}")
         
         return records
 
     def get_current_store_stats(self):
         """获取当前店铺的统计信息"""
-        current_store = self.store_combo.currentText()
-        if current_store == "全部店铺":
+        current_store = self.search_store_combo.currentText()
+        
+        # 获取退款原因筛选
+        selected_reasons = list(self.selected_reasons)
+        
+        if current_store == "全部":
             # 获取所有店铺的汇总统计
-            return self.get_all_stores_stats()
+            return self.get_all_stores_stats(selected_reasons)
         else:
             # 获取当前店铺的统计
-            return self.get_single_store_stats(current_store)
+            return self.get_single_store_stats(current_store, selected_reasons)
 
-    def get_single_store_stats(self, store_name):
+    def get_single_store_stats(self, store_name, selected_reasons=None):
         """获取单个店铺的统计信息"""
         store_id = self.db.get_store_id_by_name(store_name)
         if not store_id:
@@ -6169,9 +6335,9 @@ class RefundManager(QMainWindow):
         # 获取店铺设置
         store_settings = self.store_settings.get(store_name, {})
         
-        # 获取退款统计
+        # 获取退款统计（支持退款原因筛选）
         refund_stats = self.db.get_refund_stats_by_store(
-            store_id, start_date, end_date
+            store_id, start_date, end_date, selected_reasons
         )
         
         return {
@@ -6179,21 +6345,33 @@ class RefundManager(QMainWindow):
             "refund_stats": refund_stats
         }
 
-    def get_all_stores_stats(self):
+    def get_all_stores_stats(self, selected_reasons=None):
         """获取所有店铺的汇总统计信息"""
         # 获取日期范围
         start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
         
-        # 获取所有店铺的汇总统计
-        refund_stats = self.db.get_refund_stats_all_stores(start_date, end_date)
+        # 获取所有店铺的汇总统计（支持退款原因筛选）
+        refund_stats = self.db.get_refund_stats_all_stores(start_date, end_date, selected_reasons)
+        
+        # 获取所有店铺的设置并汇总
+        stores = self.db.get_stores()
+        total_daily_orders = 0
+        total_daily_sales = 0.0
+        total_refund_budget = 0.0
+        
+        for store_id, store_name in stores:
+            store_settings = self.db.get_store_settings(store_id) or {}
+            total_daily_orders += store_settings.get("daily_orders", 0)
+            total_daily_sales += store_settings.get("daily_sales", 0.0)
+            total_refund_budget += store_settings.get("refund_budget", 0.0)
         
         return {
             "store_settings": {
                 "current_store": "全部店铺",
-                "daily_orders": sum(store.get("daily_orders", 0) for store in self.store_settings.values()),
-                "daily_sales": sum(store.get("daily_sales", 0) for store in self.store_settings.values()),
-                "refund_budget_remaining": sum(store.get("refund_budget_remaining", 0) for store in self.store_settings.values())
+                "daily_orders": total_daily_orders,
+                "daily_sales": total_daily_sales,
+                "refund_budget_remaining": total_refund_budget
             },
             "refund_stats": refund_stats
         }
@@ -6285,9 +6463,94 @@ class RefundManager(QMainWindow):
             QMessageBox.information(self, "成功", "API设置已保存")
 
     def show_analysis_result(self, result):
-        """显示AI分析结果"""
+        """显示分析结果"""
         dialog = AnalysisResultDialog(result, self)
         dialog.exec_()
+        
+    def show_debug_info(self):
+        """显示调试信息 - API输入内容"""
+        try:
+            print("[DEBUG] 开始收集调试信息...")
+            
+            # 收集当前分析数据
+            analysis_data = self.collect_analysis_data()
+            print(f"[DEBUG] 分析数据收集完成，类型: {type(analysis_data)}")
+            
+            # 构建完整的API请求数据
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.ai_analyzer.system_prompt if hasattr(self.ai_analyzer, 'system_prompt') else """你是一名专业的电商售后客服主管，擅长数据分析、问题归因和给出改进建议。请基于以下退款数据，以专业、清晰、有条理的方式输出分析报告。"""
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(analysis_data, ensure_ascii=False, indent=2)
+                }
+            ]
+            
+            # 显示调试信息对话框
+            debug_dialog = QDialog(self)
+            debug_dialog.setWindowTitle("调试信息 - API输入内容")
+            debug_dialog.resize(900, 700)
+            
+            layout = QVBoxLayout(debug_dialog)
+            
+            # 添加标签说明
+            info_label = QLabel("本次AI分析将发送以下数据到API：")
+            info_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+            layout.addWidget(info_label)
+            
+            # 显示API输入内容
+            debug_text = QTextEdit()
+            debug_text.setReadOnly(True)
+            debug_text.setFont(QFont("Consolas", 9))
+            
+            # 格式化显示内容
+            # 计算订单总数和店铺数量
+            total_orders = analysis_data.get('total_orders_count', 0)
+            store_count = analysis_data.get('store_count', 0)
+            
+            debug_content = f"""=== 系统提示词 ===
+{messages[0]['content']}
+
+=== 用户数据 ===
+{json.dumps(analysis_data, ensure_ascii=False, indent=2)}
+
+=== 数据统计 ===
+- 订单总数: {total_orders}
+- 店铺数量: {store_count}
+- 数据大小: {len(json.dumps(analysis_data))} 字符
+- 预计Tokens消耗: 约 {int(len(json.dumps(analysis_data)) / 4)} tokens
+"""
+            
+            debug_text.setPlainText(debug_content)
+            layout.addWidget(debug_text)
+            
+            # 添加按钮
+            button_layout = QHBoxLayout()
+            copy_btn = QPushButton("复制内容")
+            close_btn = QPushButton("关闭")
+            
+            copy_btn.clicked.connect(lambda: self.copy_to_clipboard(debug_content))
+            close_btn.clicked.connect(debug_dialog.accept)
+            
+            button_layout.addWidget(copy_btn)
+            button_layout.addWidget(close_btn)
+            layout.addLayout(button_layout)
+            
+            debug_dialog.exec_()
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[DEBUG] 错误详情: {error_details}")
+            QMessageBox.critical(self, "调试错误", f"获取调试信息失败: {str(e)}\n\n详细错误信息已输出到终端")
+    
+    def copy_to_clipboard(self, text):
+        """复制文本到剪贴板"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        QMessageBox.information(self, "成功", "调试信息已复制到剪贴板")
 
     def closeEvent(self, event):
         """关闭窗口时关闭数据库连接"""
@@ -6322,7 +6585,34 @@ class AIAnalyzer:
         messages = [
             {
                 "role": "system",
-                "content": "你是一名专业的电商售后客服主管，擅长数据分析、问题归因和给出改进建议。请基于以下退款数据，以专业、清晰、有条理的方式输出分析报告。"
+                "content": """你是一名专业的电商售后客服主管，擅长数据分析、问题归因和给出改进建议。请基于以下退款数据，以专业、清晰、有条理的方式输出分析报告。
+
+## 重要规则：
+1. **退款类型识别**：如果退款原因为"其他"，则不是品质退款，需要重点分析用户备注中的具体问题
+2. **数据准确性**：请严格基于提供的统计数据进行分析，不要自行计算或推测数据
+3. **山药产品分析**：我们的产品是山药，请根据备注中的产品型号（如605=50-60cm 5斤装）分析具体问题
+4. **完整输出**：确保分析报告完整，不要中途截断
+5. **售后金额理解**：售后金额包括退款金额和打款补偿金额的总和
+
+## 数据核对要求：
+- **退款率计算**：退款率 = (退款订单数 / 订单量) × 100%，请使用提供的订单量和退款订单数
+- **数据来源**：所有统计数据必须来自"refund_stats"字段，不要自行计算
+- **订单详情**：订单详情来自"orders"字段，用于分析具体问题和备注
+- **售后金额**：售后金额 = 退款金额 + 补偿金额，请使用统计板块的准确数据
+
+## 分析要求：
+- 基于实际数据进行分析，不要猜测或虚构数据
+- 如果备注中包含产品型号，请分析哪种规格的山药问题最多
+- 对于"其他"类型的退款，重点分析备注中的具体问题
+- 确保所有统计数据和结论都基于提供的数据
+- 理解"其他"退款原因：这是客服的正确操作，避免品质退款扣分
+- 当前是测试阶段，部分订单可能没有备注，这是正常现象
+- 输出完整的分析报告，包括：总体概况、分店铺分析、退款原因分析、产品问题分析、售后处理分析、问题总结与建议
+
+## 输出格式要求：
+请以Markdown格式输出，确保内容完整不截断。如果数据量较大，请优先保证分析结论的完整性。
+
+请输出完整、准确的分析报告。"""
             },
             {
                 "role": "user",
