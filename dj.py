@@ -7069,7 +7069,7 @@ class ChartWidget(QWidget):
     
     def update_chart(self, records, start_date, end_date):
         """根据当前图表类型更新显示"""
-        print(f"[DEBUG update_chart] 当前图表索引: {self.current_chart_index}, 记录数: {len(records)}")
+        print(f"[DEBUG update_chart] 开始更新图表，索引: {self.current_chart_index}, 记录数: {len(records)}")
         
         if not records:
             print("[DEBUG update_chart] 无数据，显示空图表")
@@ -7089,6 +7089,8 @@ class ChartWidget(QWidget):
             else:
                 print(f"[DEBUG update_chart] 未知图表索引: {self.current_chart_index}")
                 self.show_empty_chart()
+            
+            print("[DEBUG update_chart] 图表更新完成")
         except Exception as e:
             print(f"[ERROR] 图表更新失败: {e}")
             import traceback
@@ -7495,7 +7497,7 @@ class ChartWidget(QWidget):
         self.canvas.draw()
     
     def show_enlarged_window(self):
-        """显示放大的图表窗口"""
+        """显示放大的图表窗口（仅视觉放大，使用当前数据）"""
         print("[DEBUG 放大窗口] 开始显示放大窗口")
         
         dialog = QDialog(self)
@@ -7515,44 +7517,33 @@ class ChartWidget(QWidget):
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn)
         
-        # 同步图表数据（使用多种方式确保数据正确）
-        records = []
-        start_date = ""
-        end_date = ""
+        # 直接使用当前图表的数据（仅视觉放大，不重新获取数据）
+        print("[DEBUG 放大窗口] 使用当前图表数据进行视觉放大")
         
-        # 方式1：通过父组件获取
-        if hasattr(self.parent(), 'get_current_records_for_chart'):
-            print("[DEBUG 放大窗口] 尝试方式1：通过父组件获取数据")
-            try:
-                records, start_date, end_date = self.parent().get_current_records_for_chart()
-                print(f"[DEBUG 放大窗口] 方式1获取到 {len(records)} 条记录")
-            except Exception as e:
-                print(f"[DEBUG 放大窗口] 方式1失败: {e}")
+        # 获取当前图表的数据
+        records = getattr(self, 'current_records', [])
+        start_date = getattr(self, 'current_start_date', "")
+        end_date = getattr(self, 'current_end_date', "")
         
-        # 方式2：如果方式1失败，尝试直接获取
-        if not records and hasattr(self.parent(), 'get_current_filtered_records'):
-            print("[DEBUG 放大窗口] 尝试方式2：直接获取数据")
-            try:
-                records = self.parent().get_current_filtered_records()
-                start_date = self.parent().start_date_edit.date().toString("yyyy-MM-dd")
-                end_date = self.parent().end_date_edit.date().toString("yyyy-MM-dd")
-                print(f"[DEBUG 放大窗口] 方式2获取到 {len(records)} 条记录")
-            except Exception as e:
-                print(f"[DEBUG 放大窗口] 方式2失败: {e}")
-        
-        # 方式3：如果仍然没有数据，使用当前图表的数据
-        if not records and hasattr(self, 'current_records'):
-            print("[DEBUG 放大窗口] 尝试方式3：使用当前图表数据")
-            records = getattr(self, 'current_records', [])
-            start_date = getattr(self, 'current_start_date', "")
-            end_date = getattr(self, 'current_end_date', "")
-            print(f"[DEBUG 放大窗口] 方式3获取到 {len(records)} 条记录")
+        print(f"[DEBUG 放大窗口] 当前图表数据: {len(records)} 条记录")
         
         if records:
-            print(f"[DEBUG 放大窗口] 最终同步 {len(records)} 条记录到放大窗口")
+            print(f"[DEBUG 放大窗口] 使用 {len(records)} 条记录显示放大图表")
+            # 直接使用当前数据更新放大图表
+            enlarged_widget.current_records = records
+            enlarged_widget.current_start_date = start_date
+            enlarged_widget.current_end_date = end_date
+            
+            # 立即调用刷新方法，确保图表显示
+            print("[DEBUG 放大窗口] 立即调用update_chart方法")
             enlarged_widget.update_chart(records, start_date, end_date)
+            
+            # 添加额外调试：检查数据是否成功传递
+            print(f"[DEBUG 放大窗口] 数据传递检查 - 记录数: {len(getattr(enlarged_widget, 'current_records', []))}")
+            print(f"[DEBUG 放大窗口] 数据传递检查 - 开始日期: {getattr(enlarged_widget, 'current_start_date', '无')}")
+            print(f"[DEBUG 放大窗口] 数据传递检查 - 结束日期: {getattr(enlarged_widget, 'current_end_date', '无')}")
         else:
-            print("[DEBUG 放大窗口] 无数据可用，显示空图表")
+            print("[DEBUG 放大窗口] 当前无数据，显示空图表")
             enlarged_widget.show_empty_chart()
         
         dialog.exec_()
@@ -7560,6 +7551,11 @@ class ChartWidget(QWidget):
 
 class EnlargedChartWidget(ChartWidget):
     """放大窗口专用的图表组件（不包含放大按钮）"""
+    
+    def __init__(self, parent=None, db=None):
+        super().__init__(parent, db)
+        # 标记为放大窗口，用于特殊处理
+        self.is_enlarged = True
     
     def init_ui(self):
         """初始化界面（不包含放大按钮）"""
@@ -7629,6 +7625,29 @@ class EnlargedChartWidget(ChartWidget):
         
         # 初始显示空图表
         self.show_empty_chart()
+        
+        # 放大窗口创建后立即尝试刷新（如果有数据）
+        QTimer.singleShot(100, self._try_refresh_after_init)
+    
+    def _try_refresh_after_init(self):
+        """初始化后尝试刷新图表"""
+        print("[DEBUG _try_refresh_after_init] 开始执行初始化后刷新")
+        
+        # 检查当前数据状态
+        print(f"[DEBUG _try_refresh_after_init] 检查数据状态:")
+        print(f"[DEBUG _try_refresh_after_init] - hasattr current_records: {hasattr(self, 'current_records')}")
+        print(f"[DEBUG _try_refresh_after_init] - current_records长度: {len(getattr(self, 'current_records', []))}")
+        print(f"[DEBUG _try_refresh_after_init] - current_chart_index: {self.current_chart_index}")
+        
+        # 如果有缓存数据，立即刷新图表
+        if hasattr(self, 'current_records') and self.current_records:
+            print(f"[DEBUG _try_refresh_after_init] 使用缓存数据刷新: {len(self.current_records)} 条记录")
+            self.update_chart(self.current_records, self.current_start_date, self.current_end_date)
+        else:
+            print("[DEBUG _try_refresh_after_init] 无缓存数据，保持空图表")
+            # 即使没有缓存数据，也尝试强制刷新一次
+            print("[DEBUG _try_refresh_after_init] 尝试强制刷新")
+            self.force_refresh_chart()
 
 
 # ---------------------------- 主程序入口 ---------------------------------
