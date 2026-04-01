@@ -94,6 +94,8 @@ class MultiSelectComboBox(QWidget):
                 background-color: white;
             }
         """)
+        # 当下拉窗口失去焦点时自动关闭并触发刷新
+        self.dropdown_widget.focusOutEvent = self.dropdown_focus_out
         
         dropdown_layout = QVBoxLayout(self.dropdown_widget)
         
@@ -165,19 +167,34 @@ class MultiSelectComboBox(QWidget):
             item = self.list_widget.item(i)
             if not item.isHidden():
                 item.setCheckState(Qt.Checked)
+        
+        # 同步更新 selected_items 属性
+        self.selected_items = set(self.checkedItems())
 
     def clear_selection(self):
         """清空选择"""
         self.clearChecked()
+        
+        # 同步更新 selected_items 属性
+        self.selected_items = set()
 
     def on_item_changed(self, item):
         """复选框状态变化处理"""
+        # 同步更新 selected_items 属性
+        self.selected_items = set(self.checkedItems())
+        
+        # 立即触发变化信号，实现实时刷新
+        self.itemsChanged.emit()
+        
+        # 更新按钮显示
         self.update_display()
 
     def toggle_dropdown(self):
         """切换下拉列表显示"""
         if self.dropdown_widget.isVisible():
             self.dropdown_widget.hide()
+            # 当下拉窗口关闭时，触发变化信号（确保实时刷新）
+            self.itemsChanged.emit()
         else:
             # 显示在下拉按钮下方
             pos = self.dropdown_btn.mapToGlobal(QPoint(0, self.dropdown_btn.height()))
@@ -204,6 +221,21 @@ class MultiSelectComboBox(QWidget):
         """设置最大宽度"""
         self.dropdown_btn.setMaximumWidth(width)
         self.setFixedWidth(width)
+    
+    def dropdown_focus_out(self, event):
+        """当下拉窗口失去焦点时关闭并触发刷新"""
+        # 调用父类的焦点失去事件处理
+        QWidget.focusOutEvent(self.dropdown_widget, event)
+        
+        # 延迟关闭下拉窗口，避免立即关闭导致的问题
+        QTimer.singleShot(100, self.close_dropdown_and_refresh)
+    
+    def close_dropdown_and_refresh(self):
+        """关闭下拉窗口并触发刷新"""
+        if self.dropdown_widget.isVisible():
+            self.dropdown_widget.hide()
+            # 触发变化信号，确保实时刷新
+            self.itemsChanged.emit()
 
 
 # ---------------------------- 店铺基本信息设置对话框 --------------------------------
@@ -1931,7 +1963,7 @@ class RefundManager(QMainWindow):
         self.search_order_edit.mousePressEvent = self.search_order_mouse_press
         
         # 设置退款原因多选控件
-        reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "其他"]
+        reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "生产日期/保质期与商品描述不符", "其他"]
         self.search_reason_dropdown = MultiSelectComboBox()
         self.search_reason_dropdown.addItems(reasons)
         self.search_reason_dropdown.setMaximumWidth(150)
@@ -2195,7 +2227,7 @@ class RefundManager(QMainWindow):
             print(f"[DEBUG] 退款原因下拉框存在，开始设置选项")
             reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", 
                       "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", 
-                      "货物与描述不符", "其他"]
+                      "货物与描述不符", "生产日期/保质期与商品描述不符", "其他"]
             print(f"[DEBUG] 退款原因列表: {reasons}")
             self.reason_combo.clear()  # 先清空现有选项
             self.reason_combo.addItems(reasons)
@@ -3429,7 +3461,8 @@ class RefundManager(QMainWindow):
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
         # 将多选的原因转换为数据库查询格式
-        reason_param = "全部" if not reasons else ",".join(reasons)
+        # 如果选择了退款原因，使用列表格式；否则使用"全部"
+        reason_param = "全部" if not reasons else reasons
         
         return self.db.search_records(order_no, reason_param, cancel, compensate, reject, reject_result, start_date, end_date, store_name)
 
@@ -6923,6 +6956,7 @@ class ChartWidget(QWidget):
         "大小/规格/重量等与商品描述不符",
         "品种/标签/图片/包装等与商品描述不符",
         "货物与描述不符",
+        "生产日期/保质期与商品描述不符",
         "其他"
     ]
     
