@@ -1912,6 +1912,8 @@ class RefundManager(QMainWindow):
         prev_day_btn = search_group.findChild(QPushButton, "prev_day_btn")
         next_day_btn = search_group.findChild(QPushButton, "next_day_btn")
         week_btn = search_group.findChild(QPushButton, "week_btn")
+        month_btn = search_group.findChild(QPushButton, "month_btn")
+        all_time_btn = search_group.findChild(QPushButton, "all_time_btn")
         
         # 设置控件初始值
         self.search_store_combo.addItem("全部")
@@ -1983,6 +1985,8 @@ class RefundManager(QMainWindow):
         prev_day_btn.clicked.connect(self.previous_day)
         next_day_btn.clicked.connect(self.next_day)
         week_btn.clicked.connect(lambda: self.set_quick_date(7))
+        month_btn.clicked.connect(lambda: self.set_quick_date(30))
+        all_time_btn.clicked.connect(self.show_all_time)
         # 右下角：订单记录表格
         table_group = QGroupBox("订单记录表格")
         table_layout = QVBoxLayout(table_group)
@@ -3765,6 +3769,17 @@ class RefundManager(QMainWindow):
         self.start_date_edit.setDate(start)
         self.end_date_edit.setDate(end)
         self.load_table_data()
+    
+    def show_all_time(self):
+        """显示全部时间范围的记录"""
+        # 设置一个很大的日期范围来显示所有记录
+        self.start_date_edit.setDate(QDate(2000, 1, 1))  # 很早的日期
+        self.end_date_edit.setDate(QDate(2100, 12, 31))  # 很晚的日期
+        self.load_table_data()
+        
+        # 显示提示信息
+        total_count = self.table.rowCount()
+        self.show_bubble_message(f"📅 已显示全部时间范围的记录！\n当前显示 {total_count} 条记录。")
 
     def previous_day(self):
         """前一天：将当前日期范围往前移动一天"""

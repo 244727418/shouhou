@@ -391,36 +391,43 @@
        <number>5</number>
       </property>
       <item>
-       <widget class="QPushButton" name="today_btn">
-        <property name="text">
-         <string>今天</string>
+       <layout class="QHBoxLayout" name="today_yesterday_layout">
+        <property name="spacing">
+         <number>2</number>
         </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>30</height>
-         </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">padding: 5px 10px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="yesterday_btn">
-        <property name="text">
-         <string>昨天</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>30</height>
-         </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">padding: 5px 10px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
-        </property>
-       </widget>
+        <item>
+         <widget class="QPushButton" name="today_btn">
+          <property name="text">
+           <string>今天</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="yesterday_btn">
+          <property name="text">
+           <string>昨天</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
        <layout class="QHBoxLayout" name="prev_next_layout">
@@ -462,18 +469,57 @@
        </layout>
       </item>
       <item>
-       <widget class="QPushButton" name="week_btn">
+       <layout class="QHBoxLayout" name="week_month_layout">
+        <property name="spacing">
+         <number>2</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="week_btn">
+          <property name="text">
+           <string>近7天</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #118AB2; border-radius: 4px; background-color: #118AB2; color: white; font-weight: bold;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="month_btn">
+          <property name="text">
+           <string>近30天</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #118AB2; border-radius: 4px; background-color: #118AB2; color: white; font-weight: bold;</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="all_time_btn">
         <property name="text">
-         <string>近7天</string>
+         <string>全部时间</string>
         </property>
         <property name="minimumSize">
          <size>
-          <width>80</width>
+          <width>0</width>
           <height>30</height>
          </size>
         </property>
         <property name="styleSheet">
-         <string notr="true">padding: 5px 10px; border: 1px solid #118AB2; border-radius: 4px; background-color: #118AB2; color: white; font-weight: bold;</string>
+         <string notr="true">padding: 5px 10px; border: 1px solid #EF476F; border-radius: 4px; background-color: #EF476F; color: white; font-weight: bold;</string>
         </property>
        </widget>
       </item>
