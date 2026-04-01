@@ -1,0 +1,939 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RefundManager</class>
+ <widget class="QMainWindow" name="RefundManager">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1700</width>
+    <height>950</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>电商售后品质退款管理工具</string>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>1200</width>
+    <height>700</height>
+   </size>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>6</number>
+    </property>
+    <property name="leftMargin">
+     <number>6</number>
+    </property>
+    <property name="topMargin">
+     <number>6</number>
+    </property>
+    <property name="rightMargin">
+     <number>6</number>
+    </property>
+    <property name="bottomMargin">
+     <number>6</number>
+    </property>
+    <item>
+     <widget class="QSplitter" name="main_splitter">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+      <widget class="QSplitter" name="top_splitter">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="childrenCollapsible">
+        <bool>false</bool>
+       </property>
+       <!-- 左侧：信息录入区 -->
+       <widget class="QGroupBox" name="input_group">
+        <property name="title">
+         <string>信息录入</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>350</width>
+          <height>300</height>
+         </size>
+        </property>
+        <layout class="QGridLayout" name="gridLayout">
+         <property name="horizontalSpacing">
+          <number>8</number>
+         </property>
+         <property name="verticalSpacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>12</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <!-- 第1行：店铺选择 -->
+         <item row="0" column="0">
+          <widget class="QLabel" name="store_label">
+           <property name="text">
+            <string>店铺：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1" colspan="3">
+          <layout class="QHBoxLayout" name="horizontalLayout_store">
+           <property name="spacing">
+            <number>6</number>
+           </property>
+           <item>
+            <widget class="QComboBox" name="store_combo"/>
+           </item>
+           <item>
+            <widget class="QPushButton" name="add_store_btn">
+             <property name="text">
+              <string>➕</string>
+             </property>
+             <property name="toolTip">
+              <string>添加新店铺</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="edit_store_btn">
+             <property name="text">
+              <string>✏️</string>
+             </property>
+             <property name="toolTip">
+              <string>修改当前店铺名称</string>
+             </property>
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="delete_store_btn">
+             <property name="text">
+              <string>🗑️</string>
+             </property>
+             <property name="toolTip">
+              <string>删除当前店铺及其所有数据</string>
+             </property>
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <!-- 第2行：订单号 -->
+         <item row="1" column="0">
+          <widget class="QLabel" name="order_no_label">
+           <property name="text">
+            <string>订单号：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1" colspan="3">
+          <widget class="QLineEdit" name="order_no_edit">
+           <property name="placeholderText">
+            <string>请输入订单号</string>
+           </property>
+          </widget>
+         </item>
+         <!-- 第3行：退款原因 -->
+         <item row="2" column="0">
+          <widget class="QLabel" name="reason_label">
+           <property name="text">
+            <string>退款原因：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1" colspan="3">
+          <widget class="QComboBox" name="reason_combo">
+           <property name="editable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <!-- 第4行：退款金额 -->
+         <item row="3" column="0">
+          <widget class="QLabel" name="refund_amount_label">
+           <property name="text">
+            <string>退款金额：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLineEdit" name="refund_amount_edit">
+           <property name="placeholderText">
+            <string>0.00</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="2">
+          <widget class="QLabel" name="yuan_label">
+           <property name="text">
+            <string>元</string>
+           </property>
+          </widget>
+         </item>
+         <!-- 第5行：取消订单 -->
+         <item row="4" column="0">
+          <widget class="QLabel" name="cancel_label">
+           <property name="text">
+            <string>取消订单：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QCheckBox" name="cancel_checkbox">
+           <property name="text">
+            <string>是</string>
+           </property>
+          </widget>
+         </item>
+         <!-- 第6行：补偿 -->
+         <item row="5" column="0">
+          <widget class="QLabel" name="compensate_label">
+           <property name="text">
+            <string>补偿：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QCheckBox" name="compensate_checkbox">
+           <property name="text">
+            <string>是</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="2">
+          <widget class="QLineEdit" name="comp_amount_edit">
+           <property name="placeholderText">
+            <string>补偿金额</string>
+           </property>
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="3">
+          <widget class="QLabel" name="comp_yuan_label">
+           <property name="text">
+            <string>元</string>
+           </property>
+          </widget>
+         </item>
+         <!-- 第7行：拒绝退款 -->
+         <item row="6" column="0">
+          <widget class="QLabel" name="reject_label">
+           <property name="text">
+            <string>拒绝退款：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QCheckBox" name="reject_checkbox">
+           <property name="text">
+            <string>是</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="2" colspan="2">
+          <widget class="QComboBox" name="reject_result_combo">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <!-- 第8行：备注 -->
+         <item row="7" column="0">
+          <widget class="QLabel" name="notes_label">
+           <property name="text">
+            <string>备注：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="1" colspan="3">
+          <widget class="QLineEdit" name="notes_edit">
+           <property name="placeholderText">
+            <string>请输入备注信息</string>
+           </property>
+          </widget>
+         </item>
+         <!-- 第9行：记录日期 -->
+         <item row="8" column="0">
+          <widget class="QLabel" name="record_date_label">
+           <property name="text">
+            <string>记录日期：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="8" column="1" colspan="3">
+          <widget class="QDateEdit" name="record_date_edit"/>
+         </item>
+         <!-- 第10行：按钮区域 -->
+         <item row="9" column="0" colspan="4">
+          <layout class="QHBoxLayout" name="horizontalLayout_buttons">
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="add_btn">
+             <property name="text">
+              <string>添加记录</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="update_btn">
+             <property name="text">
+              <string>更新记录</string>
+             </property>
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="clear_btn">
+             <property name="text">
+              <string>清空</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <!-- 中间：AI分析区 -->
+       <widget class="QGroupBox" name="ai_analysis_group">
+        <property name="title">
+         <string>AI智能分析</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>350</width>
+          <height>300</height>
+         </size>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_ai">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>12</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="ai_analysis_label">
+           <property name="text">
+            <string>AI分析结果：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QTextEdit" name="ai_analysis_text">
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_ai_buttons">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="analyze_btn">
+             <property name="text">
+              <string>开始分析</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="copy_ai_btn">
+             <property name="text">
+              <string>复制结果</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_ai">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <!-- 右侧：店铺信息区 -->
+       <widget class="QGroupBox" name="store_info_group">
+        <property name="title">
+         <string>店铺信息</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>300</width>
+          <height>300</height>
+         </size>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_store">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>12</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="store_stats_label">
+           <property name="text">
+            <string>店铺统计信息：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="store_stats_display">
+           <property name="text">
+            <string>请选择店铺查看统计信息</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_store_buttons">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="store_settings_btn">
+             <property name="text">
+              <string>店铺设置</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="refresh_stats_btn">
+             <property name="text">
+              <string>刷新统计</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_store">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+      <!-- 下部区域 -->
+      <widget class="QSplitter" name="bottom_splitter">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="childrenCollapsible">
+        <bool>false</bool>
+       </property>
+       <property name="handleWidth">
+        <number>8</number>
+       </property>
+       <!-- 左侧：搜索筛选区 -->
+       <widget class="QGroupBox" name="search_group">
+        <property name="title">
+         <string>搜索筛选</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>300</width>
+          <height>400</height>
+         </size>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_search">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>12</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <!-- 搜索条件区域 -->
+         <item>
+          <layout class="QGridLayout" name="gridLayout_search">
+           <property name="horizontalSpacing">
+            <number>8</number>
+           </property>
+           <property name="verticalSpacing">
+            <number>8</number>
+           </property>
+           <!-- 订单号搜索 -->
+           <item row="0" column="0">
+            <widget class="QLabel" name="search_order_label">
+             <property name="text">
+              <string>订单号：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="search_order_edit">
+             <property name="placeholderText">
+              <string>输入订单号搜索</string>
+             </property>
+            </widget>
+           </item>
+           <!-- 店铺搜索 -->
+           <item row="1" column="0">
+            <widget class="QLabel" name="search_store_label">
+             <property name="text">
+              <string>店铺：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QComboBox" name="search_store_combo"/>
+           </item>
+           <!-- 退款原因搜索 -->
+           <item row="2" column="0">
+            <widget class="QLabel" name="search_reason_label">
+             <property name="text">
+              <string>退款原因：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QComboBox" name="search_reason_combo"/>
+           </item>
+           <!-- 日期范围 -->
+           <item row="3" column="0">
+            <widget class="QLabel" name="start_date_label">
+             <property name="text">
+              <string>开始日期：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QDateEdit" name="start_date_edit"/>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="end_date_label">
+             <property name="text">
+              <string>结束日期：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QDateEdit" name="end_date_edit"/>
+           </item>
+           <!-- 其他筛选条件 -->
+           <item row="5" column="0">
+            <widget class="QLabel" name="cancel_filter_label">
+             <property name="text">
+              <string>取消订单：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QComboBox" name="cancel_filter_combo"/>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="compensate_filter_label">
+             <property name="text">
+              <string>补偿：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QComboBox" name="compensate_filter_combo"/>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel" name="reject_filter_label">
+             <property name="text">
+              <string>拒绝退款：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="1">
+            <widget class="QComboBox" name="reject_filter_combo"/>
+           </item>
+           <item row="8" column="0">
+            <widget class="QLabel" name="reject_result_label">
+             <property name="text">
+              <string>拒绝结果：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="1">
+            <widget class="QComboBox" name="reject_result_filter_combo"/>
+           </item>
+          </layout>
+         </item>
+         <!-- 搜索按钮 -->
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_search_buttons">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="search_btn">
+             <property name="text">
+              <string>搜索</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="reset_search_btn">
+             <property name="text">
+              <string>重置</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_search">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <!-- 右侧：表格区 -->
+       <widget class="QGroupBox" name="table_group">
+        <property name="title">
+         <string>退款记录列表</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_table">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>12</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QTableWidget" name="table_widget">
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::SingleSelection</enum>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectRows</enum>
+           </property>
+           <property name="alternatingRowColors">
+            <bool>true</bool>
+           </property>
+           <property name="sortingEnabled">
+            <bool>true</bool>
+           </property>
+           <attribute name="horizontalHeaderStretchLastSection">
+            <bool>true</bool>
+           </attribute>
+           <column>
+            <property name="text">
+             <string>ID</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>订单号</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>店铺</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>退款原因</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>退款金额</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>取消订单</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>补偿</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>补偿金额</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>拒绝退款</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>拒绝结果</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>备注</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>记录日期</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+         <!-- 表格操作按钮 -->
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_table_buttons">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="edit_record_btn">
+             <property name="text">
+              <string>编辑记录</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="delete_record_btn">
+             <property name="text">
+              <string>删除记录</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="export_btn">
+             <property name="text">
+              <string>导出Excel</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="import_btn">
+             <property name="text">
+              <string>导入Excel</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_table">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <!-- 状态栏 -->
+  <widget class="QStatusBar" name="statusbar"/>
+  <!-- 菜单栏 -->
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1700</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu">
+    <property name="title">
+     <string>文件</string>
+    </property>
+    <addaction name="action_export"/>
+    <addaction name="action_import"/>
+    <addaction name="separator"/>
+    <addaction name="action_exit"/>
+   </widget>
+   <widget class="QMenu" name="menu_2">
+    <property name="title">
+     <string>设置</string>
+    </property>
+    <addaction name="action_store_settings"/>
+    <addaction name="action_api_settings"/>
+   </widget>
+   <widget class="QMenu" name="menu_3">
+    <property name="title">
+     <string>帮助</string>
+    </property>
+    <addaction name="action_about"/>
+   </widget>
+   <addaction name="menu"/>
+   <addaction name="menu_2"/>
+   <addaction name="menu_3"/>
+  </widget>
+  <!-- 菜单动作 -->
+  <action name="action_export">
+   <property name="text">
+    <string>导出数据</string>
+   </property>
+  </action>
+  <action name="action_import">
+   <property name="text">
+    <string>导入数据</string>
+   </property>
+  </action>
+  <action name="action_exit">
+   <property name="text">
+    <string>退出</string>
+   </property>
+  </action>
+  <action name="action_store_settings">
+   <property name="text">
+    <string>店铺设置</string>
+   </property>
+  </action>
+  <action name="action_api_settings">
+   <property name="text">
+    <string>API设置</string>
+   </property>
+  </action>
+  <action name="action_about">
+   <property name="text">
+    <string>关于</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

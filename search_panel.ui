@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SearchPanel</class>
+ <widget class="QGroupBox" name="SearchPanel">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>搜索筛选</string>
+  </property>
+  <property name="title">
+   <string>搜索筛选</string>
+  </property>
+  <layout class="QGridLayout" name="search_layout">
+   <property name="horizontalSpacing">
+    <number>3</number>
+   </property>
+   <property name="verticalSpacing">
+    <number>3</number>
+   </property>
+   <item row="0" column="0">
+    <widget class="QLabel" name="label_store">
+     <property name="text">
+      <string>店铺</string>
+     </property>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QComboBox" name="search_store_combo">
+     <property name="minimumSize">
+      <size>
+       <width>100</width>
+       <height>0</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+   <item row="1" column="0">
+    <widget class="QLabel" name="label_order">
+     <property name="text">
+      <string>订单号</string>
+     </property>
+    </widget>
+   </item>
+   <item row="1" column="1">
+    <widget class="QLineEdit" name="search_order_edit">
+     <property name="minimumSize">
+      <size>
+       <width>100</width>
+       <height>0</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+   <item row="2" column="0">
+    <widget class="QLabel" name="label_reason">
+     <property name="text">
+      <string>退款原因</string>
+     </property>
+    </widget>
+   </item>
+   <item row="2" column="1">
+    <widget class="QComboBox" name="search_reason_combo">
+     <property name="minimumSize">
+      <size>
+       <width>100</width>
+       <height>0</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+   <item row="3" column="0">
+    <widget class="QLabel" name="label_start_date">
+     <property name="text">
+      <string>开始日期</string>
+     </property>
+    </widget>
+   </item>
+   <item row="3" column="1">
+    <widget class="QDateEdit" name="start_date_edit">
+     <property name="calendarPopup">
+      <bool>true</bool>
+     </property>
+     <property name="displayFormat">
+      <string>yyyy-MM-dd</string>
+     </property>
+    </widget>
+   </item>
+   <item row="4" column="0">
+    <widget class="QLabel" name="label_end_date">
+     <property name="text">
+      <string>结束日期</string>
+     </property>
+    </widget>
+   </item>
+   <item row="4" column="1">
+    <widget class="QDateEdit" name="end_date_edit">
+     <property name="calendarPopup">
+      <bool>true</bool>
+     </property>
+     <property name="displayFormat">
+      <string>yyyy-MM-dd</string>
+     </property>
+    </widget>
+   </item>
+   <item row="5" column="0">
+    <widget class="QLabel" name="label_cancel">
+     <property name="text">
+      <string>撤销</string>
+     </property>
+    </widget>
+   </item>
+   <item row="5" column="1">
+    <widget class="QComboBox" name="search_cancel_combo"/>
+   </item>
+   <item row="6" column="0">
+    <widget class="QLabel" name="label_compensate">
+     <property name="text">
+      <string>打款补偿</string>
+     </property>
+    </widget>
+   </item>
+   <item row="6" column="1">
+    <widget class="QComboBox" name="search_compensate_combo"/>
+   </item>
+   <item row="7" column="0">
+    <widget class="QLabel" name="label_reject">
+     <property name="text">
+      <string>驳回</string>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="1">
+    <widget class="QComboBox" name="search_reject_combo"/>
+   </item>
+   <item row="8" column="0">
+    <widget class="QLabel" name="label_reject_result">
+     <property name="text">
+      <string>驳回结果</string>
+     </property>
+    </widget>
+   </item>
+   <item row="8" column="1">
+    <widget class="QComboBox" name="search_reject_result_combo"/>
+   </item>
+   <item row="9" column="0" colspan="2">
+    <layout class="QHBoxLayout" name="button_layout">
+     <item>
+      <widget class="QPushButton" name="reset_btn">
+       <property name="text">
+        <string>重置筛选</string>
+       </property>
+       <property name="fixedSize">
+        <size>
+         <width>100</width>
+         <height>0</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="show_all_btn">
+       <property name="text">
+        <string>显示全部</string>
+       </property>
+       <property name="fixedSize">
+        <size>
+         <width>100</width>
+         <height>0</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item row="10" column="0" colspan="2">
+    <widget class="QGroupBox" name="quick_date_group">
+     <property name="title">
+      <string>快捷日期</string>
+     </property>
+     <layout class="QVBoxLayout" name="quick_date_layout">
+      <property name="spacing">
+       <number>5</number>
+      </property>
+      <item>
+       <widget class="QPushButton" name="today_btn">
+        <property name="text">
+         <string>今天</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="yesterday_btn">
+        <property name="text">
+         <string>昨天</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="prev_next_layout">
+        <property name="spacing">
+         <number>2</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="prev_day_btn">
+          <property name="text">
+           <string>◀ 前一天</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="next_day_btn">
+          <property name="text">
+           <string>后一天 ▶</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="week_btn">
+        <property name="text">
+         <string>近7天</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

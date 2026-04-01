@@ -1,0 +1,360 @@
+/* 多巴胺配色方案 - 信息录入区专用 */
+
+/* 信息录入区整体样式 - 纯白背景 */
+QGroupBox#InputPanel {
+    background-color: #FFFFFF;
+    border: 2px solid #E0E0E0;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 8px 18px;
+    background-color: #FF6B9D;
+    color: #FFFFFF;
+    border-radius: 10px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+/* 标签样式 - 圆角平滑优化 */
+QLabel {
+    color: #073B4C;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    background-color: #F8F9FA;
+    border: 1px solid #E9ECEF;
+    border-radius: 8px;
+    padding: 2px 6px;
+    margin: 1px;
+    text-align: center;
+}
+
+/* 按钮样式 - 纯色多巴胺配色 */
+QPushButton {
+    background-color: #FFD166;
+    border: none;
+    border-radius: 10px;
+    color: #073B4C;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #FF9E6D;
+    margin-top: -1px;
+    margin-bottom: 1px;
+}
+
+QPushButton:pressed {
+    background-color: #06D6A0;
+    margin-top: 1px;
+    margin-bottom: -1px;
+}
+
+/* 店铺相关按钮特殊样式 */
+QPushButton#add_store_btn {
+    background-color: #06D6A0;
+    color: #FFFFFF;
+}
+
+QPushButton#edit_store_btn {
+    background-color: #FFD166;
+    color: #073B4C;
+}
+
+QPushButton#delete_store_btn {
+    background-color: #EF476F;
+    color: #FFFFFF;
+}
+
+/* 操作按钮特殊样式 */
+QPushButton#add_btn {
+    background-color: #06D6A0;
+    color: #FFFFFF;
+}
+
+QPushButton#update_btn {
+    background-color: #FFD166;
+    color: #073B4C;
+}
+
+QPushButton#clear_btn {
+    background-color: #EF476F;
+    color: #FFFFFF;
+}
+
+/* 导入导出按钮特殊样式 - 彩色标签 */
+QPushButton#import_btn {
+    background-color: #06D6A0;
+    color: #FFFFFF;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    padding: 6px 12px;
+}
+
+QPushButton#export_btn {
+    background-color: #118AB2;
+    color: #FFFFFF;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    padding: 6px 12px;
+}
+
+QPushButton#import_btn:hover, QPushButton#export_btn:hover {
+    margin-top: -1px;
+    margin-bottom: 1px;
+}
+
+QPushButton#import_btn:pressed, QPushButton#export_btn:pressed {
+    margin-top: 1px;
+    margin-bottom: -1px;
+}
+
+/* 输入框样式 */
+QLineEdit, QComboBox, QDateEdit, QTextEdit {
+    background-color: #FFFFFF;
+    border: 2px solid #D0D0D0;
+    border-radius: 10px;
+    padding: 4px 8px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    color: #073B4C;
+    selection-background-color: #06D6A0;
+}
+
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTextEdit:focus {
+    border: 2px solid #EF476F;
+    background-color: #FFFCF9;
+    margin-top: -1px;
+    margin-bottom: 1px;
+}
+
+/* 下拉框样式 */
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 1px solid #D0D0D0;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #FFD166, stop: 1 #FF9E6D);
+}
+
+QComboBox::drop-down:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #FF9E6D, stop: 1 #FF6B9D);
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid #073B4C;
+}
+
+/* 复选框样式 */
+QCheckBox {
+    spacing: 12px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    color: #073B4C;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #118AB2;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+}
+
+QCheckBox::indicator:hover {
+    border: 2px solid #EF476F;
+    background-color: #FFFCF9;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #06D6A0;
+    border: 2px solid #073B4C;
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #118AB2;
+}
+
+/* 特殊复选框样式 - 撤销、打款、驳回 */
+QCheckBox#cancel_check, QCheckBox#compensate_check, QCheckBox#reject_check {
+    background-color: #F8F9FA;
+    border: 1px solid #E9ECEF;
+    border-radius: 8px;
+    padding: 4px 8px;
+    margin: 2px;
+}
+
+/* 撤销和打款复选框文字往左移动2像素 */
+QCheckBox#cancel_check, QCheckBox#compensate_check {
+    padding-left: 6px;
+    margin-left: 0px;
+}
+
+/* 搜索筛选区样式 - 鲜艳多巴胺纯色配色 */
+QGroupBox {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    background-color: #FF9E6D;
+    border: none;
+    border-radius: 12px;
+    padding: 8px;
+    margin: 5px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 8px 20px;
+    background-color: #EF476F;
+    color: #FFFFFF;
+    border-radius: 10px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+}
+
+/* 搜索筛选区标签样式 - 鲜艳多巴胺纯色配色 */
+QGroupBox#SearchPanel QLabel {
+    color: #FFFFFF;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 14px;
+    background-color: #FF6B9D;
+    border: none;
+    border-radius: 10px;
+    padding: 6px 12px;
+    margin: 3px;
+    text-align: center;
+}
+
+/* 搜索筛选区按钮样式 - 鲜艳多巴胺纯色配色 */
+QGroupBox#SearchPanel QPushButton {
+    background-color: #FFD166;
+    border: none;
+    border-radius: 12px;
+    color: #073B4C;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 8px 16px;
+}
+
+QGroupBox#SearchPanel QPushButton:hover {
+    background-color: #06D6A0;
+    color: #FFFFFF;
+    margin-top: -1px;
+    margin-bottom: 1px;
+}
+
+QGroupBox#SearchPanel QPushButton:pressed {
+    background-color: #118AB2;
+    color: #FFFFFF;
+    margin-top: 1px;
+    margin-bottom: -1px;
+}
+
+/* 搜索筛选区输入框样式 - 鲜艳多巴胺纯色配色 */
+QGroupBox#SearchPanel QLineEdit,
+QGroupBox#SearchPanel QComboBox,
+QGroupBox#SearchPanel QDateEdit {
+    background-color: #FFFFFF;
+    border: 3px solid #FF9E6D;
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-weight: bold;
+    font-size: 14px;
+    color: #073B4C;
+    selection-background-color: #06D6A0;
+}
+
+QGroupBox#SearchPanel QLineEdit:focus,
+QGroupBox#SearchPanel QComboBox:focus,
+QGroupBox#SearchPanel QDateEdit:focus {
+    border: 3px solid #EF476F;
+    background-color: #FFFCF9;
+    margin-top: -1px;
+    margin-bottom: 1px;
+}
+
+/* 快捷日期按钮组样式 - 鲜艳多巴胺纯色配色 */
+QGroupBox[title="快捷日期"] {
+    background-color: #06D6A0;
+    border: none;
+    border-radius: 12px;
+    margin-top: 8px;
+    padding: 10px;
+}
+
+QGroupBox[title="快捷日期"]::title {
+    background-color: #118AB2;
+    color: #FFFFFF;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 6px 15px;
+}
+
+/* 日期选择器样式 */
+QDateEdit::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 1px solid #D0D0D0;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #FFD166, stop: 1 #FF9E6D);
+}
+
+QDateEdit::drop-down:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #FF9E6D, stop: 1 #FF6B9D);
+}
+
+QDateEdit::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid #073B4C;
+}
+
+/* 文本编辑框样式 */
+QTextEdit {
+    background-color: #FFFFFF;
+    border: 2px solid #118AB2;
+    border-radius: 8px;
+    padding: 8px;
+    font-family: "Microsoft YaHei";
+    font-weight: bold;
+    font-size: 10px;
+    color: #073B4C;
+}

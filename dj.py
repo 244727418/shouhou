@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation
 from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette
+from PyQt5.uic import loadUi
 
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -1595,329 +1596,28 @@ class RefundManager(QMainWindow):
         self.top_splitter = top_splitter
         self.bottom_splitter = bottom_splitter
         
-        # 左上角：信息录入区
-        input_group = QGroupBox("信息录入")
-        input_layout = QGridLayout()
-        input_layout.setHorizontalSpacing(0)  # 设置列间距为0，让标签和输入框紧挨着
-        input_layout.setVerticalSpacing(5)    # 保持行间距为5像素
-        input_group.setLayout(input_layout)
-
-        # 第一行：店铺、订单号、退款原因
-        store_label = QLabel("店铺：")
-        store_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(store_label, 0, 0)
+        # 左上角：信息录入区（使用UI文件加载）
+        # 直接加载UI文件，UI文件中的顶层控件已经是QGroupBox
+        self.input_panel = QGroupBox()
+        loadUi("input_panel.ui", self.input_panel)
         
-        # 店铺选择区域 - 使用水平布局包含下拉框和操作按钮
-        store_widget = QWidget()
-        store_layout = QHBoxLayout(store_widget)
-        store_layout.setContentsMargins(0, 0, 0, 0)
-        store_layout.setSpacing(5)
+        # 设置对象名称，用于样式表选择器
+        self.input_panel.setObjectName("InputPanel")
         
-        # 美化后的店铺下拉框
-        self.store_combo = QComboBox()
-        self.store_combo.setStyleSheet("""
-            QComboBox {
-                font-size: 16px;
-                font-weight: bold;
-                padding: 8px 12px;
-                border: 2px solid #4CAF50;
-                border-radius: 6px;
-                background-color: white;
-                min-height: 35px;
-                min-width: 200px;
-            }
-            QComboBox:hover {
-                border-color: #45a049;
-                background-color: #f8fff8;
-            }
-            QComboBox:focus {
-                border-color: #2196F3;
-                background-color: #f0f8ff;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 30px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 8px solid #666;
-                width: 0;
-                height: 0;
-            }
-            QComboBox QAbstractItemView {
-                font-size: 14px;
-                border: 2px solid #4CAF50;
-                border-radius: 6px;
-                background-color: white;
-                selection-background-color: #4CAF50;
-                selection-color: white;
-                outline: none;
-            }
-        """)
-        self.store_combo.currentTextChanged.connect(self.on_store_combo_changed)  # 同步店铺选择
-        store_layout.addWidget(self.store_combo)
+        # 应用多巴胺配色方案
+        self._apply_dopamine_styles()
         
-        # 添加店铺按钮
-        self.add_store_btn = QPushButton("➕")
-        self.add_store_btn.setToolTip("添加新店铺")
-        self.add_store_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 16px;
-                padding: 8px 12px;
-                border: 2px solid #2196F3;
-                border-radius: 6px;
-                background-color: #2196F3;
-                color: white;
-                min-width: 40px;
-                min-height: 35px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-                border-color: #1976D2;
-            }
-            QPushButton:pressed {
-                background-color: #0D47A1;
-            }
-        """)
-        self.add_store_btn.clicked.connect(self.add_store_dialog)
-        store_layout.addWidget(self.add_store_btn)
+        # 连接信号和槽
+        self._connect_input_signals()
         
-        # 修改店铺名称按钮
-        self.edit_store_btn = QPushButton("✏️")
-        self.edit_store_btn.setToolTip("修改当前店铺名称")
-        self.edit_store_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 16px;
-                padding: 8px 12px;
-                border: 2px solid #FF9800;
-                border-radius: 6px;
-                background-color: #FF9800;
-                color: white;
-                min-width: 40px;
-                min-height: 35px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-                border-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #E65100;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                border-color: #999999;
-                color: #666666;
-            }
-        """)
-        self.edit_store_btn.clicked.connect(self.edit_store_dialog)
-        self.edit_store_btn.setEnabled(False)  # 默认禁用，选择店铺后启用
-        store_layout.addWidget(self.edit_store_btn)
-        
-        # 删除店铺按钮
-        self.delete_store_btn = QPushButton("🗑️")
-        self.delete_store_btn.setToolTip("删除当前店铺及其所有数据")
-        self.delete_store_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 16px;
-                padding: 8px 12px;
-                border: 2px solid #F44336;
-                border-radius: 6px;
-                background-color: #F44336;
-                color: white;
-                min-width: 40px;
-                min-height: 35px;
-            }
-            QPushButton:hover {
-                background-color: #D32F2F;
-                border-color: #D32F2F;
-            }
-            QPushButton:pressed {
-                background-color: #B71C1C;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                border-color: #999999;
-                color: #666666;
-            }
-        """)
-        self.delete_store_btn.clicked.connect(self.delete_store_dialog)
-        self.delete_store_btn.setEnabled(False)  # 默认禁用，选择店铺后启用
-        store_layout.addWidget(self.delete_store_btn)
-        
-        input_layout.addWidget(store_widget, 0, 1)
-
-        order_label = QLabel("订单号：")
-        order_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(order_label, 0, 3)
-        self.order_no_edit = QLineEdit()
-        self.order_no_edit.setStyleSheet("margin-left: 0px; font-size: 14px;")
-        self.order_no_edit.mousePressEvent = self.order_no_mouse_press
-        input_layout.addWidget(self.order_no_edit, 0, 4, 1, 2)  # 订单号输入框跨2列，拉长宽度
-
-        # 第一行第三个选项：退款金额
-        refund_label = QLabel("退款金额：")
-        refund_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(refund_label, 0, 6)
-        self.refund_amount_edit = QLineEdit()
-        self.refund_amount_edit.setStyleSheet("margin-left: 0px; font-size: 14px;")
-        self.refund_amount_edit.setPlaceholderText("¥")
-        self.refund_amount_edit.setMaximumWidth(80)  # 退款金额输入框更窄
-        self.refund_amount_edit.mousePressEvent = self.refund_amount_mouse_press
-        input_layout.addWidget(self.refund_amount_edit, 0, 7)
-
-        # 第二行：是否撤销、是否打款补偿、补偿金额、是否驳回、驳回结果、退款原因
-        # 是否撤销和是否打款补偿上下排列 - 移到第二行开头
-        checkbox_layout = QVBoxLayout()
-        checkbox_layout.setSpacing(2)  # 减少复选框间距
-        self.cancel_check = QCheckBox("是否撤销")
-        self.cancel_check.setStyleSheet("font-size: 14px;")
-        self.compensate_check = QCheckBox("是否打款补偿")
-        self.compensate_check.setStyleSheet("font-size: 14px;")
-        self.compensate_check.stateChanged.connect(self.toggle_comp_amount)
-        checkbox_layout.addWidget(self.cancel_check)
-        checkbox_layout.addWidget(self.compensate_check)
-        input_layout.addLayout(checkbox_layout, 1, 0)  # 移到第0列
-
-        comp_label = QLabel("补偿金额：")
-        comp_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(comp_label, 1, 1)
-        self.comp_amount_edit = QLineEdit()
-        self.comp_amount_edit.setStyleSheet("margin-left: 0px; font-size: 14px;")
-        self.comp_amount_edit.setPlaceholderText("¥")
-        self.comp_amount_edit.setMaximumWidth(80)  # 补偿金额输入框更窄
-        self.comp_amount_edit.setEnabled(False)
-        self.comp_amount_edit.mousePressEvent = self.comp_amount_mouse_press
-        input_layout.addWidget(self.comp_amount_edit, 1, 2)  # 移到第2列
-
-        # 是否驳回和驳回结果 - 移到补偿金额后面
-        reject_layout = QVBoxLayout()
-        reject_layout.setSpacing(2)  # 减少布局间距
-        self.reject_check = QCheckBox("是否驳回")
-        self.reject_check.setStyleSheet("font-size: 14px;")
-        self.reject_check.stateChanged.connect(self.toggle_reject_result)
-        reject_layout.addWidget(self.reject_check)
-        
-        self.reject_result_combo = QComboBox()
-        self.reject_result_combo.setStyleSheet("font-size: 14px; margin-left: 0px;")
-        self.reject_result_combo.addItems(["成功", "失败"])
-        self.reject_result_combo.setEnabled(False)  # 默认不可选择
-        reject_layout.addWidget(self.reject_result_combo)
-        input_layout.addLayout(reject_layout, 1, 3)  # 移到第3列
-
-        # 退款原因 - 移到和订单号一列（第3-4列）
-        reason_label = QLabel("退款原因：")
-        reason_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(reason_label, 1, 4)
-        self.reason_combo = QComboBox()
-        self.reason_combo.setStyleSheet("margin-left: 0px; font-size: 14px;")
-        reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "其他"]
-        self.reason_combo.addItems(reasons)
-        input_layout.addWidget(self.reason_combo, 1, 5, 1, 3)  # 跨3列显示，与订单号对齐
-
-        # 第三行：备注输入框
-        notes_label = QLabel("备注：")
-        notes_label.setStyleSheet("margin-right: 2px; padding: 0px; font-size: 14px;")
-        input_layout.addWidget(notes_label, 2, 0)
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setStyleSheet("margin-left: 0px; font-size: 14px;")
-        self.notes_edit.setPlaceholderText("请输入备注信息")
-        input_layout.addWidget(self.notes_edit, 2, 1, 1, 6)  # 跨6列显示
-
-        # 操作按钮 - 紧凑布局
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(2)  # 设置按钮间距为2像素，布局更紧凑
-        
-        self.add_btn = QPushButton("添加记录")
-        self.add_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.update_btn = QPushButton("更新记录")
-        self.update_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.delete_btn = QPushButton("删除选中")
-        self.delete_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.clear_btn = QPushButton("清空输入")
-        self.clear_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.import_btn = QPushButton("导入订单")
-        self.import_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.export_btn = QPushButton("导出订单")
-        self.export_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.clear_highlight_btn = QPushButton("清除高亮")
-        self.clear_highlight_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                padding: 3px 8px;
-                background-color: #2196F3;
-                color: white;
-                border: 1px solid #1976D2;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-            QPushButton:pressed {
-                background-color: #0D47A1;
-            }
-        """)
-        
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.update_btn)
-        btn_layout.addWidget(self.delete_btn)
-        btn_layout.addWidget(self.clear_btn)
-        btn_layout.addWidget(self.import_btn)
-        btn_layout.addWidget(self.export_btn)
-        btn_layout.addWidget(self.clear_highlight_btn)
-        
-        btn_layout.addStretch()
-        input_layout.addLayout(btn_layout, 3, 0, 1, 7)  # 修改为第3行
-
-        # 绑定按钮事件
-        self.add_btn.clicked.connect(self.add_record)
-        self.update_btn.clicked.connect(self.update_record)
-        self.delete_btn.clicked.connect(self.delete_record)
-        self.clear_btn.clicked.connect(self.clear_input)
-        self.import_btn.clicked.connect(self.import_excel)
-        self.export_btn.clicked.connect(self.export_excel)
-        self.clear_highlight_btn.clicked.connect(self.clear_highlight)
-
-        # 刷新表格按钮 - 添加在添加记录按钮下方
-        refresh_btn_layout = QHBoxLayout()
-        refresh_btn_layout.setSpacing(2)  # 设置按钮间距为2像素，布局更紧凑
-        
-        self.refresh_table_btn = QPushButton("刷新表格")
-        self.refresh_table_btn.setStyleSheet("font-size: 14px; padding: 3px 8px;")
-        self.refresh_table_btn.clicked.connect(self.refresh_table_format)
-        refresh_btn_layout.addWidget(self.refresh_table_btn)
-        
-        # 数据核对按钮
-        self.check_data_btn = QPushButton("数据核对")
-        self.check_data_btn.setFixedWidth(120)  # 设置固定宽度确保文字显示完整
-        self.check_data_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                padding: 3px 8px;
-                background-color: #FF9800;
-                color: white;
-                border: 1px solid #F57C00;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #E65100;
-            }
-        """)
-        self.check_data_btn.clicked.connect(self.check_data_consistency)
-        refresh_btn_layout.addWidget(self.check_data_btn)
-        
-        refresh_btn_layout.addStretch()
-        input_layout.addLayout(refresh_btn_layout, 4, 0, 1, 7)  # 添加在第4行
+        # 连接导入导出按钮
+        self._connect_import_export_buttons()
 
         # 顶部水平布局：信息录入区 + 店铺信息区
         top_horizontal_layout = QHBoxLayout()
         
-        # 左侧：信息录入区
-        top_horizontal_layout.addWidget(input_group)
+        # 左侧：信息录入区（使用UI文件）
+        top_horizontal_layout.addWidget(self.input_panel)
         
         # 中间：AI分析与图表数据板块
         ai_chart_group = QGroupBox("AI分析与图表数据")
@@ -2187,16 +1887,30 @@ class RefundManager(QMainWindow):
         
         top_horizontal_layout.addWidget(store_info_group)
         
-        # 左下角：搜索筛选区
-        search_group = QGroupBox("搜索筛选")
-        search_layout = QGridLayout()
-        search_layout.setHorizontalSpacing(3)  # 设置水平间距为3像素，更紧凑
-        search_layout.setVerticalSpacing(3)     # 设置垂直间距为3像素，更紧凑
-        search_group.setLayout(search_layout)
+        # 左下角：搜索筛选区 - 使用UI文件
+        search_group = loadUi("search_panel.ui")
         
-        # 第一行：基础筛选条件
-        search_layout.addWidget(QLabel("店铺："), 0, 0)
-        self.search_store_combo = QComboBox()
+        # 获取UI文件中的控件引用
+        self.search_store_combo = search_group.findChild(QComboBox, "search_store_combo")
+        self.search_order_edit = search_group.findChild(QLineEdit, "search_order_edit")
+        self.search_reason_combo = search_group.findChild(QComboBox, "search_reason_combo")
+        self.start_date_edit = search_group.findChild(QDateEdit, "start_date_edit")
+        self.end_date_edit = search_group.findChild(QDateEdit, "end_date_edit")
+        self.search_cancel_combo = search_group.findChild(QComboBox, "search_cancel_combo")
+        self.search_compensate_combo = search_group.findChild(QComboBox, "search_compensate_combo")
+        self.search_reject_combo = search_group.findChild(QComboBox, "search_reject_combo")
+        self.search_reject_result_combo = search_group.findChild(QComboBox, "search_reject_result_combo")
+        
+        # 获取按钮引用
+        reset_btn = search_group.findChild(QPushButton, "reset_btn")
+        show_all_btn = search_group.findChild(QPushButton, "show_all_btn")
+        today_btn = search_group.findChild(QPushButton, "today_btn")
+        yesterday_btn = search_group.findChild(QPushButton, "yesterday_btn")
+        prev_day_btn = search_group.findChild(QPushButton, "prev_day_btn")
+        next_day_btn = search_group.findChild(QPushButton, "next_day_btn")
+        week_btn = search_group.findChild(QPushButton, "week_btn")
+        
+        # 设置控件初始值
         self.search_store_combo.addItem("全部")
         
         def on_store_changed(store_name):
@@ -2206,120 +1920,49 @@ class RefundManager(QMainWindow):
             self.on_search_changed()
         
         self.search_store_combo.currentTextChanged.connect(on_store_changed)
-        search_layout.addWidget(self.search_store_combo, 0, 1)
-
-        search_layout.addWidget(QLabel("订单号："), 1, 0)
-        self.search_order_edit = QLineEdit()
-        self.search_order_edit.setMinimumWidth(100)  # 设置最小宽度，允许自动调整
+        
+        # 设置订单号输入框
         self.search_order_edit.textChanged.connect(self.on_search_changed)
         self.search_order_edit.mousePressEvent = self.search_order_mouse_press
-        search_layout.addWidget(self.search_order_edit, 1, 1)
-
-        # 退款原因多选下拉框
-        search_layout.addWidget(QLabel("退款原因："), 2, 0)
-        self.search_reason_combo = MultiSelectComboBox()
+        
+        # 设置退款原因下拉框
         reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "其他"]
         self.search_reason_combo.addItems(reasons)
-        # 移除最大宽度限制，改为自动拉伸
-        self.search_reason_combo.itemsChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.search_reason_combo, 2, 1)
-
-        # 登记日期 - 改为两行布局
-        search_layout.addWidget(QLabel("开始日期："), 3, 0)
-        self.start_date_edit = QDateEdit()
+        print(f"[DEBUG] 搜索筛选区退款原因已设置，选项数量: {len(reasons)}")
+        self.search_reason_combo.currentTextChanged.connect(self.on_search_changed)
+        
+        # 设置日期选择器
         self.start_date_edit.setCalendarPopup(True)
         self.start_date_edit.setDate(QDate.currentDate())
         self.start_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.start_date_edit.dateChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.start_date_edit, 3, 1)
         
-        search_layout.addWidget(QLabel("结束日期："), 4, 0)
-        self.end_date_edit = QDateEdit()
         self.end_date_edit.setCalendarPopup(True)
         self.end_date_edit.setDate(QDate.currentDate())
         self.end_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.end_date_edit.dateChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.end_date_edit, 4, 1)
-
-        # 其他筛选条件
-        search_layout.addWidget(QLabel("撤销："), 5, 0)
-        self.search_cancel_combo = QComboBox()
+        
+        # 设置其他筛选条件
         self.search_cancel_combo.addItems(["全部", "是", "否"])
         self.search_cancel_combo.currentTextChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.search_cancel_combo, 5, 1)
-
-        search_layout.addWidget(QLabel("打款补偿："), 6, 0)
-        self.search_compensate_combo = QComboBox()
+        
         self.search_compensate_combo.addItems(["全部", "是", "否"])
         self.search_compensate_combo.currentTextChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.search_compensate_combo, 6, 1)
-
-        search_layout.addWidget(QLabel("驳回："), 7, 0)
-        self.search_reject_combo = QComboBox()
+        
         self.search_reject_combo.addItems(["全部", "是", "否"])
         self.search_reject_combo.currentTextChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.search_reject_combo, 7, 1)
-
-        search_layout.addWidget(QLabel("驳回结果："), 8, 0)
-        self.search_reject_result_combo = QComboBox()
+        
         self.search_reject_result_combo.addItems(["全部", "成功", "失败"])
         self.search_reject_result_combo.currentTextChanged.connect(self.on_search_changed)
-        search_layout.addWidget(self.search_reject_result_combo, 8, 1)
-
-        # 重置和显示全部按钮（一行两个按钮）
-        button_layout = QHBoxLayout()
         
-        reset_btn = QPushButton("重置筛选")
-        reset_btn.setFixedWidth(100)  # 设置固定宽度
+        # 连接按钮信号
         reset_btn.clicked.connect(self.reset_search)
-        button_layout.addWidget(reset_btn)
-        
-        show_all_btn = QPushButton("显示全部")
-        show_all_btn.setFixedWidth(100)  # 设置固定宽度
         show_all_btn.clicked.connect(self.show_all_records)
-        button_layout.addWidget(show_all_btn)
-        
-        search_layout.addLayout(button_layout, 9, 0, 1, 2)
-        
-        # 快捷日期按钮 - 改为每个按钮一行
-        quick_date_group = QGroupBox("快捷日期")
-        quick_date_layout = QVBoxLayout()
-        quick_date_layout.setSpacing(5)  # 按钮间距5像素
-        quick_date_group.setLayout(quick_date_layout)
-        
-        # 每个按钮独占一行
-        today_btn = QPushButton("今天")
         today_btn.clicked.connect(lambda: self.set_quick_date(0))
-        quick_date_layout.addWidget(today_btn)
-        
-        yesterday_btn = QPushButton("昨天")
         yesterday_btn.clicked.connect(lambda: self.set_quick_date(1))
-        quick_date_layout.addWidget(yesterday_btn)
-        
-        # 前一天和后一天按钮
-        prev_next_layout = QHBoxLayout()
-        prev_next_layout.setSpacing(2)
-        
-        prev_day_btn = QPushButton("◀ 前一天")
-        prev_day_btn.setStyleSheet("font-size: 12px; padding: 2px 6px;")
         prev_day_btn.clicked.connect(self.previous_day)
-        prev_next_layout.addWidget(prev_day_btn)
-        
-        next_day_btn = QPushButton("后一天 ▶")
-        next_day_btn.setStyleSheet("font-size: 12px; padding: 2px 6px;")
         next_day_btn.clicked.connect(self.next_day)
-        prev_next_layout.addWidget(next_day_btn)
-        
-        quick_date_layout.addLayout(prev_next_layout)
-        
-        week_btn = QPushButton("近7天")
         week_btn.clicked.connect(lambda: self.set_quick_date(7))
-        quick_date_layout.addWidget(week_btn)
-        
-        month_btn = QPushButton("近30天")
-        month_btn.clicked.connect(lambda: self.set_quick_date(30))
-        quick_date_layout.addWidget(month_btn)
-        
         # 右下角：订单记录表格
         table_group = QGroupBox("订单记录表格")
         table_layout = QVBoxLayout(table_group)
@@ -2370,7 +2013,7 @@ class RefundManager(QMainWindow):
         
         # 将区域添加到分割器中
         # 上部区域：信息录入区（左）、AI分析区（中）、店铺信息区（右）
-        top_splitter.addWidget(input_group)           # 左：信息录入区
+        top_splitter.addWidget(self.input_panel)           # 左：信息录入区
         top_splitter.addWidget(ai_chart_group)        # 中：AI分析与图表数据
         top_splitter.addWidget(store_info_group)      # 右：店铺信息区
         
@@ -2380,17 +2023,16 @@ class RefundManager(QMainWindow):
         bottom_splitter.setMinimumSize(200, 300) # 下部区域最小尺寸：左200，右300
         
         # 设置各板块的最小尺寸，确保布局合理
-        input_group.setMinimumSize(300, 0)       # 信息录入区最小宽度
+        self.input_panel.setMinimumSize(300, 0)       # 信息录入区最小宽度
         ai_chart_group.setMinimumSize(250, 0)    # AI分析区最小宽度
         store_info_group.setMinimumSize(300, 0)  # 店铺信息区最小宽度
         
         # 删除上部区域最小宽度限制，让用户完全自由调整
         
-        # 下部左侧：垂直布局（搜索筛选区 + 快捷日期）
+        # 下部左侧：垂直布局（搜索筛选区 - 已包含快捷日期）
         left_bottom_widget = QWidget()
         left_bottom_layout = QVBoxLayout(left_bottom_widget)
         left_bottom_layout.addWidget(search_group)
-        left_bottom_layout.addWidget(quick_date_group)
         
         # 下部区域：左侧（搜索筛选）和右侧（订单记录表格）
         bottom_splitter.addWidget(left_bottom_widget)  # 左：搜索筛选区
@@ -2407,6 +2049,161 @@ class RefundManager(QMainWindow):
 
         # 初始化店铺信息下拉框
         self.load_store_info_combo()
+
+    def _apply_dopamine_styles(self):
+        """应用多巴胺配色方案到信息录入区"""
+        try:
+            # 读取多巴胺配色样式表
+            with open("dopamine_styles.qss", "r", encoding="utf-8") as f:
+                dopamine_styles = f.read()
+            
+            # 应用样式表到信息录入区
+            self.input_panel.setStyleSheet(dopamine_styles)
+            print("[DEBUG] 多巴胺配色方案已应用到信息录入区")
+            
+        except Exception as e:
+            print(f"[DEBUG] 应用多巴胺配色方案失败: {e}")
+            # 如果样式表文件不存在，使用默认样式
+            default_styles = """
+                QGroupBox#InputPanel {
+                    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                                      stop: 0 #FF6B9D, stop: 0.5 #FFD166, stop: 1 #06D6A0);
+                    border: 2px solid #118AB2;
+                    border-radius: 15px;
+                    font-family: "Microsoft YaHei";
+                    font-weight: bold;
+                    font-size: 10px;
+                }
+                QPushButton {
+                    background-color: #FFD166;
+                    border: 2px solid #EF476F;
+                    border-radius: 8px;
+                    color: #073B4C;
+                    font-family: "Microsoft YaHei";
+                    font-weight: bold;
+                    font-size: 10px;
+                    padding: 5px 10px;
+                }
+            """
+            self.input_panel.setStyleSheet(default_styles)
+
+    def _connect_input_signals(self):
+        """连接信息录入区UI文件的信号和槽"""
+        # 店铺相关控件
+        self.store_combo = self.input_panel.findChild(QComboBox, "store_combo")
+        self.add_store_btn = self.input_panel.findChild(QPushButton, "add_store_btn")
+        self.edit_store_btn = self.input_panel.findChild(QPushButton, "edit_store_btn")
+        self.delete_store_btn = self.input_panel.findChild(QPushButton, "delete_store_btn")
+        
+        # 订单和金额相关控件
+        self.order_no_edit = self.input_panel.findChild(QLineEdit, "order_no_edit")
+        self.refund_amount_edit = self.input_panel.findChild(QLineEdit, "refund_amount_edit")
+        
+        # 复选框控件
+        self.cancel_check = self.input_panel.findChild(QCheckBox, "cancel_check")
+        self.compensate_check = self.input_panel.findChild(QCheckBox, "compensate_check")
+        self.reject_check = self.input_panel.findChild(QCheckBox, "reject_check")
+        
+        # 补偿金额和驳回结果
+        self.comp_amount_edit = self.input_panel.findChild(QLineEdit, "comp_amount_edit")
+        self.reject_result_combo = self.input_panel.findChild(QComboBox, "reject_result_combo")
+        
+        # 退款原因和日期
+        self.reason_combo = self.input_panel.findChild(QComboBox, "reason_combo")
+        self.record_date_edit = self.input_panel.findChild(QDateEdit, "record_date_edit")
+        
+        # 调试信息：检查控件是否找到
+        print(f"[DEBUG] 信息录入区退款原因下拉框找到: {self.reason_combo is not None}")
+        if self.reason_combo:
+            print(f"[DEBUG] 退款原因下拉框对象类型: {type(self.reason_combo)}")
+        
+        # 备注
+        self.notes_edit = self.input_panel.findChild(QTextEdit, "notes_edit")
+        
+        # 操作按钮
+        self.add_btn = self.input_panel.findChild(QPushButton, "add_btn")
+        self.update_btn = self.input_panel.findChild(QPushButton, "update_btn")
+        self.clear_btn = self.input_panel.findChild(QPushButton, "clear_btn")
+        
+        # 连接信号
+        if self.store_combo:
+            self.store_combo.currentTextChanged.connect(self.on_store_combo_changed)
+        if self.add_store_btn:
+            self.add_store_btn.clicked.connect(self.add_store_dialog)
+        if self.edit_store_btn:
+            self.edit_store_btn.clicked.connect(self.edit_store_dialog)
+        if self.delete_store_btn:
+            self.delete_store_btn.clicked.connect(self.delete_store_dialog)
+        
+        if self.compensate_check:
+            self.compensate_check.stateChanged.connect(self.toggle_comp_amount)
+        if self.reject_check:
+            self.reject_check.stateChanged.connect(self.toggle_reject_result)
+            
+        if self.add_btn:
+            self.add_btn.clicked.connect(self.add_record)
+        if self.update_btn:
+            self.update_btn.clicked.connect(self.update_record)
+        if self.clear_btn:
+            self.clear_btn.clicked.connect(self.clear_input)
+        
+        # 设置鼠标点击事件
+        if self.order_no_edit:
+            self.order_no_edit.mousePressEvent = self.order_no_mouse_press
+        if self.refund_amount_edit:
+            self.refund_amount_edit.mousePressEvent = self.refund_amount_mouse_press
+        if self.comp_amount_edit:
+            self.comp_amount_edit.mousePressEvent = self.comp_amount_mouse_press
+            
+        # 初始化控件状态
+        if self.comp_amount_edit:
+            self.comp_amount_edit.setEnabled(False)
+        if self.reject_result_combo:
+            self.reject_result_combo.setEnabled(False)
+            
+        # 设置退款原因选项
+        print(f"[DEBUG] 开始设置退款原因选项，self.reason_combo: {self.reason_combo}")
+        print(f"[DEBUG] self.reason_combo is None: {self.reason_combo is None}")
+        print(f"[DEBUG] bool(self.reason_combo): {bool(self.reason_combo)}")
+        
+        # 使用更明确的条件判断
+        if self.reason_combo is not None:
+            print(f"[DEBUG] 退款原因下拉框存在，开始设置选项")
+            reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", 
+                      "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", 
+                      "货物与描述不符", "其他"]
+            print(f"[DEBUG] 退款原因列表: {reasons}")
+            self.reason_combo.clear()  # 先清空现有选项
+            self.reason_combo.addItems(reasons)
+            print(f"[DEBUG] 信息录入区退款原因已设置，选项数量: {self.reason_combo.count()}")
+        else:
+            print(f"[DEBUG] 退款原因下拉框未找到，无法设置选项")
+            
+        # 设置驳回结果选项
+        if self.reject_result_combo:
+            self.reject_result_combo.addItems(["成功", "失败"])
+            
+        # 设置日期为今天
+        if self.record_date_edit:
+            self.record_date_edit.setDate(QDate.currentDate())
+
+    def _connect_import_export_buttons(self):
+        """连接导入导出按钮的信号和槽"""
+        # 查找导入导出按钮
+        self.import_btn = self.input_panel.findChild(QPushButton, "import_btn")
+        self.export_btn = self.input_panel.findChild(QPushButton, "export_btn")
+        
+        # 调试信息
+        print(f"[DEBUG] 导入按钮找到: {self.import_btn is not None}")
+        print(f"[DEBUG] 导出按钮找到: {self.export_btn is not None}")
+        
+        # 连接信号
+        if self.import_btn:
+            self.import_btn.clicked.connect(self.import_excel)
+            print("[DEBUG] 导入按钮信号已连接")
+        if self.export_btn:
+            self.export_btn.clicked.connect(self.export_excel)
+            print("[DEBUG] 导出按钮信号已连接")
 
     def on_store_combo_changed(self, store_name):
         """信息录入区店铺选择变化"""
@@ -2451,7 +2248,7 @@ class RefundManager(QMainWindow):
         # 第一次调整：[800, 600, 400] - 信息录入区缩小200px，AI分析区扩大200px
         # 第二次调整：[600, 800, 400] - 信息录入区再缩小200px，AI分析区再扩大200px
         # 第三次调整：[700, 700, 500] - 信息录入区扩大100px，AI分析区缩小100px，店铺信息区扩大100px
-        self.top_splitter.setSizes([700, 700, 500])  # 三个区域的比例：左700(+100)，中700(-100)，右500(+100)
+        self.top_splitter.setSizes([850, 550, 500])  # 三个区域的比例：左900(+200)，中500(-200)，右500(不变)
         self.bottom_splitter.setSizes([100, 1300]) # 下部水平分割器固定比例：左100，右1300
 
     def closeEvent(self, event):
@@ -3594,9 +3391,9 @@ class RefundManager(QMainWindow):
         """获取当前筛选条件下的记录（与表格显示的数据相同）"""
         order_no = self.search_order_edit.text()
         
-        # 处理退款原因筛选（支持多选）
-        reason = self.search_reason_combo.checkedItems()
-        if not reason:  # 如果没有选择任何原因，显示全部
+        # 处理退款原因筛选（改为单选）
+        reason = self.search_reason_combo.currentText()
+        if not reason or reason == "全部":  # 如果没有选择任何原因，显示全部
             reason = "全部"
         
         cancel = self.search_cancel_combo.currentText()
@@ -3636,10 +3433,10 @@ class RefundManager(QMainWindow):
         
         # 获取筛选参数用于调试标签
         order_no = self.search_order_edit.text()
-        reason = self.search_reason_combo.checkedItems()
+        reason = self.search_reason_combo.currentText()
         
-        # 更新退款原因筛选条件
-        self.selected_reasons = set(reason)
+        # 更新退款原因筛选条件（改为单选）
+        self.selected_reasons = {reason} if reason and reason != "全部" else set()
         
         if not reason:
             reason = "全部"
@@ -3818,7 +3615,7 @@ class RefundManager(QMainWindow):
         """获取当前搜索参数（用于缓存检查）"""
         return (
             self.search_order_edit.text(),
-            tuple(self.search_reason_combo.checkedItems()),
+            (self.search_reason_combo.currentText(),) if self.search_reason_combo.currentText() else (),
             self.search_cancel_combo.currentText(),
             self.search_compensate_combo.currentText(),
             self.search_reject_combo.currentText(),

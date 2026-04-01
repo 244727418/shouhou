@@ -1,0 +1,573 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>InputPanelFlexible</class>
+ <widget class="QGroupBox" name="InputPanelFlexible">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>700</width>
+    <height>300</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>信息录入</string>
+  </property>
+  <property name="title">
+   <string>信息录入</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   
+   <!-- 第一行：店铺选择 -->
+   <item>
+    <layout class="QHBoxLayout" name="store_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="store_label">
+       <property name="text">
+        <string>店铺</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>40</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="store_combo">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_1">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="add_store_btn">
+       <property name="text">
+        <string>添加</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>22</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="edit_store_btn">
+       <property name="text">
+        <string>编辑</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>22</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="delete_store_btn">
+       <property name="text">
+        <string>删除</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>22</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第二行：订单号和退款金额 -->
+   <item>
+    <layout class="QHBoxLayout" name="order_refund_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="order_label">
+       <property name="text">
+        <string>订单号</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>50</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="order_no_edit">
+       <property name="minimumSize">
+        <size>
+         <width>300</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_2">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="refund_label">
+       <property name="text">
+        <string>退款金额</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>65</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="refund_amount_edit">
+       <property name="placeholderText">
+        <string>¥</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第三行：复选框组和补偿金额 -->
+   <item>
+    <layout class="QHBoxLayout" name="checkbox_layout">
+     <property name="spacing">
+      <number>15</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QCheckBox" name="cancel_check">
+       <property name="text">
+        <string>撤销</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>78</width>
+         <height>25</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="compensate_check">
+       <property name="text">
+        <string>打款</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>100</width>
+         <height>25</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="comp_label">
+       <property name="text">
+        <string>金额</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>60</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="comp_amount_edit">
+       <property name="placeholderText">
+        <string>¥</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_3">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="import_btn">
+       <property name="text">
+        <string>导入</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>60</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="export_btn">
+       <property name="text">
+        <string>导出</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>60</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第四行：驳回相关 -->
+   <item>
+    <layout class="QHBoxLayout" name="reject_layout">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QCheckBox" name="reject_check">
+       <property name="text">
+        <string>驳回</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>78</width>
+         <height>25</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="reject_result_label">
+       <property name="text">
+        <string>驳回结果</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>65</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="reject_result_combo">
+       <property name="minimumSize">
+        <size>
+         <width>150</width>
+         <height>35</height>
+        </size>
+       </property>
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_4">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="date_label">
+       <property name="text">
+        <string>日期</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>30</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDateEdit" name="record_date_edit">
+       <property name="minimumSize">
+        <size>
+         <width>120</width>
+         <height>35</height>
+        </size>
+       </property>
+       <property name="calendarPopup">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第五行：退款原因 -->
+   <item>
+    <layout class="QHBoxLayout" name="reason_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="reason_label">
+       <property name="text">
+        <string>退款原因</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>75</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="reason_combo">
+       <property name="minimumSize">
+        <size>
+         <width>400</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第六行：备注 -->
+   <item>
+    <layout class="QHBoxLayout" name="notes_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="notes_label">
+       <property name="text">
+        <string>备注</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>40</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 1px; text-align: left;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QTextEdit" name="notes_edit">
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>60</height>
+        </size>
+       </property>
+       <property name="maximumHeight">
+        <number>80</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   
+   <!-- 第七行：操作按钮 -->
+   <item>
+    <layout class="QHBoxLayout" name="button_layout">
+     <property name="spacing">
+      <number>20</number>
+     </property>
+     <item>
+      <spacer name="horizontalSpacer_5">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="add_btn">
+       <property name="text">
+        <string>添加记录</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>100</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="update_btn">
+       <property name="text">
+        <string>更新记录</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>100</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="clear_btn">
+       <property name="text">
+        <string>清空输入</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>100</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_6">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
