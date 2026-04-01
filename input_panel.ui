@@ -64,6 +64,9 @@
        <height>35</height>
       </size>
      </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+     </property>
     </widget>
    </item>
    <item row="0" column="4">
@@ -307,6 +310,9 @@
      <property name="editable">
       <bool>true</bool>
      </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+     </property>
     </widget>
    </item>
    
@@ -331,6 +337,9 @@
        <width>250</width>
        <height>35</height>
       </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
      </property>
     </widget>
    </item>

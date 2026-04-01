@@ -48,6 +48,9 @@ from openpyxl.utils import get_column_letter
 import xlrd  # 用于支持 .xls 文件，需要安装 xlrd
 
 
+
+
+
 # 自定义多选下拉框组件（基于复选框）
 class MultiSelectComboBox(QWidget):
     itemsChanged = pyqtSignal()  # 定义信号
@@ -1893,7 +1896,7 @@ class RefundManager(QMainWindow):
         # 获取UI文件中的控件引用
         self.search_store_combo = search_group.findChild(QComboBox, "search_store_combo")
         self.search_order_edit = search_group.findChild(QLineEdit, "search_order_edit")
-        self.search_reason_combo = search_group.findChild(QComboBox, "search_reason_combo")
+        self.search_reason_btn = search_group.findChild(QPushButton, "search_reason_btn")
         self.start_date_edit = search_group.findChild(QDateEdit, "start_date_edit")
         self.end_date_edit = search_group.findChild(QDateEdit, "end_date_edit")
         self.search_cancel_combo = search_group.findChild(QComboBox, "search_cancel_combo")
@@ -1925,11 +1928,28 @@ class RefundManager(QMainWindow):
         self.search_order_edit.textChanged.connect(self.on_search_changed)
         self.search_order_edit.mousePressEvent = self.search_order_mouse_press
         
-        # 设置退款原因下拉框
+        # 设置退款原因多选控件
         reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "其他"]
-        self.search_reason_combo.addItems(reasons)
-        print(f"[DEBUG] 搜索筛选区退款原因已设置，选项数量: {len(reasons)}")
-        self.search_reason_combo.currentTextChanged.connect(self.on_search_changed)
+        self.search_reason_dropdown = MultiSelectComboBox()
+        self.search_reason_dropdown.addItems(reasons)
+        self.search_reason_dropdown.setMaximumWidth(150)
+        self.search_reason_dropdown.itemsChanged.connect(self.on_search_changed)
+        
+        # 将多选控件添加到布局中
+        search_reason_layout = QHBoxLayout()
+        search_reason_layout.addWidget(self.search_reason_dropdown)
+        search_reason_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 找到退款原因标签所在的位置，将按钮替换为多选控件
+        # 退款原因在第2行第1列（row=2, column=1）
+        # 直接移除原来的按钮，添加多选控件到相同位置
+        search_group.layout().removeWidget(self.search_reason_btn)
+        self.search_reason_btn.setParent(None)
+        
+        # 添加多选控件到布局（第2行第1列）
+        search_group.layout().addWidget(self.search_reason_dropdown, 2, 1)
+                
+        print(f"[DEBUG] 搜索筛选区退款原因多选控件已设置，选项数量: {len(reasons)}")
         
         # 设置日期选择器
         self.start_date_edit.setCalendarPopup(True)
@@ -2249,7 +2269,7 @@ class RefundManager(QMainWindow):
         # 第二次调整：[600, 800, 400] - 信息录入区再缩小200px，AI分析区再扩大200px
         # 第三次调整：[700, 700, 500] - 信息录入区扩大100px，AI分析区缩小100px，店铺信息区扩大100px
         self.top_splitter.setSizes([850, 550, 500])  # 三个区域的比例：左900(+200)，中500(-200)，右500(不变)
-        self.bottom_splitter.setSizes([100, 1300]) # 下部水平分割器固定比例：左100，右1300
+        self.bottom_splitter.setSizes([160, 1240]) # 下部水平分割器固定比例：左110(+10)，右1290(-10)
 
     def closeEvent(self, event):
         """窗口关闭事件，保存设置"""
@@ -3391,10 +3411,10 @@ class RefundManager(QMainWindow):
         """获取当前筛选条件下的记录（与表格显示的数据相同）"""
         order_no = self.search_order_edit.text()
         
-        # 处理退款原因筛选（改为单选）
-        reason = self.search_reason_combo.currentText()
-        if not reason or reason == "全部":  # 如果没有选择任何原因，显示全部
-            reason = "全部"
+        # 处理退款原因筛选（改为多选）
+        reasons = []
+        if hasattr(self, 'search_reason_dropdown'):
+            reasons = list(self.search_reason_dropdown.selected_items)
         
         cancel = self.search_cancel_combo.currentText()
         compensate = self.search_compensate_combo.currentText()
@@ -3404,7 +3424,10 @@ class RefundManager(QMainWindow):
         start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
-        return self.db.search_records(order_no, reason, cancel, compensate, reject, reject_result, start_date, end_date, store_name)
+        # 将多选的原因转换为数据库查询格式
+        reason_param = "全部" if not reasons else ",".join(reasons)
+        
+        return self.db.search_records(order_no, reason_param, cancel, compensate, reject, reject_result, start_date, end_date, store_name)
 
     def load_table_data(self, force_reload=False):
         """加载表格数据（根据筛选条件）"""
@@ -3433,17 +3456,18 @@ class RefundManager(QMainWindow):
         
         # 获取筛选参数用于调试标签
         order_no = self.search_order_edit.text()
-        reason = self.search_reason_combo.currentText()
         
-        # 更新退款原因筛选条件（改为单选）
-        self.selected_reasons = {reason} if reason and reason != "全部" else set()
+        # 更新退款原因筛选条件（改为多选）
+        if hasattr(self, 'search_reason_dropdown'):
+            self.selected_reasons = self.search_reason_dropdown.selected_items
+        else:
+            self.selected_reasons = set()
         
-        if not reason:
-            reason = "全部"
+        # 获取店铺名称用于调试标签
         store_name = self.search_store_combo.currentText()
         
         # 更新调试标签显示当前筛选结果
-        self.update_debug_label(len(records), order_no, reason, store_name)
+        self.update_debug_label(len(records), order_no, str(len(self.selected_reasons)) + "个原因", store_name)
 
         # 性能优化：增量更新 - 只更新变化的行
         current_row_count = self.table.rowCount()
@@ -3613,9 +3637,14 @@ class RefundManager(QMainWindow):
 
     def _get_current_search_params(self):
         """获取当前搜索参数（用于缓存检查）"""
+        # 获取多选的退款原因
+        reasons = []
+        if hasattr(self, 'search_reason_dropdown'):
+            reasons = list(self.search_reason_dropdown.selected_items)
+        
         return (
             self.search_order_edit.text(),
-            (self.search_reason_combo.currentText(),) if self.search_reason_combo.currentText() else (),
+            tuple(reasons) if reasons else (),
             self.search_cancel_combo.currentText(),
             self.search_compensate_combo.currentText(),
             self.search_reject_combo.currentText(),
@@ -3686,7 +3715,8 @@ class RefundManager(QMainWindow):
         """重置搜索条件"""
         self.search_order_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
-        self.search_reason_combo.clearChecked()  # 清空多选状态
+        if hasattr(self, 'search_reason_dropdown'):
+            self.search_reason_dropdown.clear_selection()  # 清空多选状态
         self.search_cancel_combo.setCurrentIndex(0)  # 全部
         self.search_compensate_combo.setCurrentIndex(0)  # 全部
         self.search_reject_combo.setCurrentIndex(0)  # 全部
@@ -3701,7 +3731,8 @@ class RefundManager(QMainWindow):
         # 清除所有筛选条件
         self.search_order_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
-        self.search_reason_combo.clearChecked()  # 清空多选状态
+        if hasattr(self, 'search_reason_dropdown'):
+            self.search_reason_dropdown.clear_selection()  # 清空多选状态
         self.search_cancel_combo.setCurrentIndex(0)  # 全部
         self.search_compensate_combo.setCurrentIndex(0)  # 全部
         self.search_reject_combo.setCurrentIndex(0)  # 全部
@@ -5457,7 +5488,8 @@ class RefundManager(QMainWindow):
                     
                     # 清除所有筛选条件
                     self.search_order_edit.clear()
-                    self.search_reason_combo.clearChecked()
+                    if hasattr(self, 'search_reason_dropdown'):
+                        self.search_reason_dropdown.clear_selection()
                     self.search_cancel_combo.setCurrentText('全部')
                     self.search_compensate_combo.setCurrentText('全部')
                     self.search_reject_combo.setCurrentText('全部')
@@ -5501,7 +5533,8 @@ class RefundManager(QMainWindow):
                         self._last_search_params = None
                     
                     self.search_order_edit.clear()
-                    self.search_reason_combo.clearChecked()
+                    if hasattr(self, 'search_reason_dropdown'):
+                        self.search_reason_dropdown.clear_selection()
                     self.search_cancel_combo.setCurrentText('全部')
                     self.search_compensate_combo.setCurrentText('全部')
                     self.search_reject_combo.setCurrentText('全部')
