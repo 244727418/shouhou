@@ -16,17 +16,56 @@
   <property name="title">
    <string>搜索筛选</string>
   </property>
+  <property name="objectName">
+   <string>SearchPanel</string>
+  </property>
+  <property name="objectName">
+   <string>SearchPanel</string>
+  </property>
   <layout class="QGridLayout" name="search_layout">
    <property name="horizontalSpacing">
-    <number>3</number>
+    <number>8</number>
    </property>
    <property name="verticalSpacing">
-    <number>3</number>
+    <number>8</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
    </property>
    <item row="0" column="0">
     <widget class="QLabel" name="label_store">
      <property name="text">
       <string>店铺</string>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>60</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
      </property>
     </widget>
    </item>
@@ -34,9 +73,12 @@
     <widget class="QComboBox" name="search_store_combo">
      <property name="minimumSize">
       <size>
-       <width>100</width>
-       <height>0</height>
+       <width>150</width>
+       <height>30</height>
       </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
      </property>
     </widget>
    </item>
@@ -45,15 +87,27 @@
      <property name="text">
       <string>订单号</string>
      </property>
+     <property name="minimumSize">
+      <size>
+       <width>60</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+     </property>
     </widget>
    </item>
    <item row="1" column="1">
     <widget class="QLineEdit" name="search_order_edit">
      <property name="minimumSize">
       <size>
-       <width>100</width>
-       <height>0</height>
+       <width>150</width>
+       <height>30</height>
       </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
      </property>
     </widget>
    </item>
@@ -62,15 +116,27 @@
      <property name="text">
       <string>退款原因</string>
      </property>
+     <property name="minimumSize">
+      <size>
+       <width>70</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+     </property>
     </widget>
    </item>
    <item row="2" column="1">
     <widget class="QComboBox" name="search_reason_combo">
      <property name="minimumSize">
       <size>
-       <width>100</width>
-       <height>0</height>
+       <width>150</width>
+       <height>30</height>
       </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
      </property>
     </widget>
    </item>
@@ -78,6 +144,15 @@
     <widget class="QLabel" name="label_start_date">
      <property name="text">
       <string>开始日期</string>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>70</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
      </property>
     </widget>
    </item>
@@ -89,12 +164,30 @@
      <property name="displayFormat">
       <string>yyyy-MM-dd</string>
      </property>
+     <property name="minimumSize">
+      <size>
+       <width>150</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
+     </property>
     </widget>
    </item>
    <item row="4" column="0">
     <widget class="QLabel" name="label_end_date">
      <property name="text">
       <string>结束日期</string>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>70</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
      </property>
     </widget>
    </item>
@@ -106,60 +199,164 @@
      <property name="displayFormat">
       <string>yyyy-MM-dd</string>
      </property>
-    </widget>
-   </item>
-   <item row="5" column="0">
-    <widget class="QLabel" name="label_cancel">
-     <property name="text">
-      <string>撤销</string>
+     <property name="minimumSize">
+      <size>
+       <width>150</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
      </property>
     </widget>
    </item>
-   <item row="5" column="1">
-    <widget class="QComboBox" name="search_cancel_combo"/>
-   </item>
-   <item row="6" column="0">
-    <widget class="QLabel" name="label_compensate">
-     <property name="text">
-      <string>打款补偿</string>
+   <!-- 第5行：撤销和打款在同一行 - 参考快捷日期布局 -->
+   <item row="5" column="0" colspan="4">
+    <layout class="QHBoxLayout" name="cancel_compensate_layout">
+     <property name="spacing">
+      <number>8</number>
      </property>
-    </widget>
+     <item>
+      <widget class="QLabel" name="label_cancel">
+       <property name="text">
+        <string>撤销</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>30</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="search_cancel_combo">
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_compensate">
+       <property name="text">
+        <string>打款</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>30</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="search_compensate_combo">
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
-   <item row="6" column="1">
-    <widget class="QComboBox" name="search_compensate_combo"/>
-   </item>
-   <item row="7" column="0">
-    <widget class="QLabel" name="label_reject">
-     <property name="text">
-      <string>驳回</string>
+   <!-- 第6行：驳回和结果在同一行 - 参考快捷日期布局 -->
+   <item row="6" column="0" colspan="4">
+    <layout class="QHBoxLayout" name="reject_result_layout">
+     <property name="spacing">
+      <number>8</number>
      </property>
-    </widget>
+     <item>
+      <widget class="QLabel" name="label_reject">
+       <property name="text">
+        <string>驳回</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>30</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="search_reject_combo">
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_reject_result">
+       <property name="text">
+        <string>结果</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>30</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 2px; font-weight: bold; color: #333333;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="search_reject_result_combo">
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 5px; border: 1px solid #cccccc; border-radius: 4px; background-color: #ffffff;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
-   <item row="7" column="1">
-    <widget class="QComboBox" name="search_reject_combo"/>
-   </item>
-   <item row="8" column="0">
-    <widget class="QLabel" name="label_reject_result">
-     <property name="text">
-      <string>驳回结果</string>
-     </property>
-    </widget>
-   </item>
-   <item row="8" column="1">
-    <widget class="QComboBox" name="search_reject_result_combo"/>
-   </item>
-   <item row="9" column="0" colspan="2">
+   <item row="7" column="0" colspan="4">
     <layout class="QHBoxLayout" name="button_layout">
      <item>
       <widget class="QPushButton" name="reset_btn">
        <property name="text">
         <string>重置筛选</string>
        </property>
-       <property name="fixedSize">
+       <property name="minimumSize">
         <size>
          <width>100</width>
-         <height>0</height>
+         <height>35</height>
         </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold;</string>
        </property>
       </widget>
      </item>
@@ -168,17 +365,20 @@
        <property name="text">
         <string>显示全部</string>
        </property>
-       <property name="fixedSize">
+       <property name="minimumSize">
         <size>
          <width>100</width>
-         <height>0</height>
+         <height>35</height>
         </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">padding: 8px 16px; border: none; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold;</string>
        </property>
       </widget>
      </item>
     </layout>
    </item>
-   <item row="10" column="0" colspan="2">
+   <item row="8" column="0" colspan="4">
     <widget class="QGroupBox" name="quick_date_group">
      <property name="title">
       <string>快捷日期</string>
@@ -192,12 +392,30 @@
         <property name="text">
          <string>今天</string>
         </property>
+        <property name="minimumSize">
+         <size>
+          <width>80</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">padding: 5px 10px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
+        </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="yesterday_btn">
         <property name="text">
          <string>昨天</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>80</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">padding: 5px 10px; border: 1px solid #FFD166; border-radius: 4px; background-color: #FFD166; color: #333333; font-weight: bold;</string>
         </property>
        </widget>
       </item>
@@ -211,12 +429,30 @@
           <property name="text">
            <string>◀ 前一天</string>
           </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #06D6A0; border-radius: 4px; background-color: #06D6A0; color: white; font-weight: bold;</string>
+          </property>
          </widget>
         </item>
         <item>
          <widget class="QPushButton" name="next_day_btn">
           <property name="text">
            <string>后一天 ▶</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>90</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">padding: 5px 8px; border: 1px solid #06D6A0; border-radius: 4px; background-color: #06D6A0; color: white; font-weight: bold;</string>
           </property>
          </widget>
         </item>
@@ -226,6 +462,15 @@
        <widget class="QPushButton" name="week_btn">
         <property name="text">
          <string>近7天</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>80</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">padding: 5px 10px; border: 1px solid #118AB2; border-radius: 4px; background-color: #118AB2; color: white; font-weight: bold;</string>
         </property>
        </widget>
       </item>
