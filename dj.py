@@ -3771,15 +3771,125 @@ class RefundManager(QMainWindow):
         self.load_table_data()
     
     def show_all_time(self):
-        """显示全部时间范围的记录"""
+        """显示全部时间范围的记录（不触发时间曲线图自动刷新）"""
         # 设置一个很大的日期范围来显示所有记录
         self.start_date_edit.setDate(QDate(2000, 1, 1))  # 很早的日期
         self.end_date_edit.setDate(QDate(2100, 12, 31))  # 很晚的日期
-        self.load_table_data()
+        
+        # 手动加载数据，避免触发图表自动刷新
+        records = self.get_filtered_records()
+        
+        # 在加载数据时暂时断开cellChanged信号，防止误触发
+        try:
+            self.table.cellChanged.disconnect(self.on_cell_changed)
+        except TypeError:
+            # 如果信号还没有连接，忽略错误
+            pass
+        
+        # 设置表格行数
+        self.table.setRowCount(len(records))
+        
+        # 批量更新表格数据
+        for row, rec in enumerate(records):
+            # 获取店铺颜色
+            store_color = self.db.get_store_color(rec['store_name'])
+            
+            # 店铺名称
+            store_item = QTableWidgetItem(rec['store_name'])
+            if store_color:
+                store_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 0, store_item)
+            
+            # 订单号
+            order_item = QTableWidgetItem(rec['order_no'])
+            if store_color:
+                order_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 1, order_item)
+            
+            # 退款原因
+            reason_item = QTableWidgetItem(rec['reason'])
+            if store_color:
+                reason_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 2, reason_item)
+            
+            # 退款金额
+            amount_item = QTableWidgetItem(f"¥{rec['refund_amount']:.2f}")
+            amount_item.setTextAlignment(Qt.AlignCenter)
+            if store_color:
+                amount_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 3, amount_item)
+            
+            # 撤销
+            cancel_text = "是" if rec['cancel'] else "否"
+            cancel_item = QTableWidgetItem(cancel_text)
+            if rec['cancel']:
+                cancel_item.setBackground(QColor("#4CAF50"))
+                cancel_item.setForeground(QColor("white"))
+            else:
+                cancel_item.setBackground(QColor("#F44336"))
+                cancel_item.setForeground(QColor("white"))
+            cancel_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 4, cancel_item)
+            
+            # 打款补偿
+            comp_text = "是" if rec['compensate'] else "否"
+            comp_item = QTableWidgetItem(comp_text)
+            if rec['compensate']:
+                comp_item.setBackground(QColor("#4CAF50"))
+                comp_item.setForeground(QColor("white"))
+            else:
+                comp_item.setBackground(QColor("#F44336"))
+                comp_item.setForeground(QColor("white"))
+            comp_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 5, comp_item)
+            
+            # 补偿金额
+            comp_amount_item = QTableWidgetItem(f"¥{rec['comp_amount']:.2f}")
+            comp_amount_item.setTextAlignment(Qt.AlignCenter)
+            if store_color:
+                comp_amount_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 6, comp_amount_item)
+            
+            # 驳回
+            reject_text = "是" if rec['reject'] else "否"
+            reject_item = QTableWidgetItem(reject_text)
+            if rec['reject']:
+                reject_item.setBackground(QColor("#4CAF50"))
+                reject_item.setForeground(QColor("white"))
+            else:
+                reject_item.setBackground(QColor("#F44336"))
+                reject_item.setForeground(QColor("white"))
+            reject_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 7, reject_item)
+            
+            # 驳回结果
+            reject_result_item = QTableWidgetItem(rec['reject_result'])
+            reject_result_item.setTextAlignment(Qt.AlignCenter)
+            if store_color:
+                reject_result_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 8, reject_result_item)
+            
+            # 登记日期
+            date_item = QTableWidgetItem(rec['record_date'])
+            if store_color:
+                date_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 9, date_item)
+            
+            # 备注
+            notes_item = QTableWidgetItem(rec['notes'])
+            if store_color:
+                notes_item.setBackground(QColor(store_color))
+            self.table.setItem(row, 10, notes_item)
+        
+        # 数据加载完成后重新连接cellChanged信号
+        self.table.cellChanged.connect(self.on_cell_changed)
+        
+        # 更新统计信息（但不更新图表）
+        self._update_all_statistics(records)
         
         # 显示提示信息
-        total_count = self.table.rowCount()
-        self.show_bubble_message(f"📅 已显示全部时间范围的记录！\n当前显示 {total_count} 条记录。")
+        total_count = len(records)
+        self.show_bubble_message(f"📅 已显示全部时间范围的记录！\n当前显示 {total_count} 条记录。\n（时间曲线图未自动刷新）")
 
     def previous_day(self):
         """前一天：将当前日期范围往前移动一天"""
@@ -7080,7 +7190,7 @@ class ChartWidget(QWidget):
         self.canvas.draw()
     
     def draw_line_chart(self, records, start_date, end_date):
-        """绘制时间曲线图"""
+        """绘制时间曲线图（智能调整显示粒度）"""
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         
@@ -7092,59 +7202,179 @@ class ChartWidget(QWidget):
             self.show_empty_chart()
             return
         
-        # 生成日期范围
-        date_range = []
-        current_dt = start_dt
-        while current_dt <= end_dt:
-            date_range.append(current_dt)
-            current_dt += timedelta(days=1)
+        # 计算时间跨度（天数）
+        time_span_days = (end_dt - start_dt).days
         
-        # 按日期和原因统计订单数量
-        date_reason_counts = {}
-        for record in records:
-            record_date_str = record.get('record_date', '')
-            reason = record.get('reason', '')
+        # 智能调整显示粒度
+        if time_span_days > 365:  # 大于1年
+            # 从最新记录的退款日期往前数12个月
+            if records:
+                # 找到最新记录的日期
+                latest_date = max(datetime.strptime(rec['record_date'], '%Y-%m-%d') for rec in records if rec.get('record_date'))
+                # 往前数12个月
+                end_dt = latest_date
+                start_dt = latest_date - timedelta(days=365)  # 12个月约365天
             
-            if not record_date_str or reason not in self.REASON_LIST:
-                continue
+            # 按月聚合数据
+            date_range = []
+            current_dt = start_dt.replace(day=1)  # 从月初开始
+            for i in range(12):
+                date_range.append(current_dt)
+                # 下个月
+                if current_dt.month == 12:
+                    current_dt = current_dt.replace(year=current_dt.year + 1, month=1)
+                else:
+                    current_dt = current_dt.replace(month=current_dt.month + 1)
             
-            try:
-                record_date = datetime.strptime(record_date_str, '%Y-%m-%d')
-                if start_dt <= record_date <= end_dt:
-                    date_key = record_date.strftime('%Y-%m-%d')
-                    if date_key not in date_reason_counts:
-                        date_reason_counts[date_key] = {reason: 0 for reason in self.REASON_LIST}
-                    date_reason_counts[date_key][reason] += 1
-            except:
-                continue
-        
-        # 为每个原因创建数据序列
-        colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
-        
-        for i, reason in enumerate(self.REASON_LIST):
-            counts = []
-            for date_dt in date_range:
-                date_key = date_dt.strftime('%Y-%m-%d')
-                count = date_reason_counts.get(date_key, {}).get(reason, 0)
-                counts.append(count)
+            # 按月统计退款金额总和
+            monthly_reason_amounts = {}
+            for record in records:
+                record_date_str = record.get('record_date', '')
+                reason = record.get('reason', '')
+                refund_amount = record.get('refund_amount', 0)
+                
+                if not record_date_str or reason not in self.REASON_LIST:
+                    continue
+                
+                try:
+                    record_date = datetime.strptime(record_date_str, '%Y-%m-%d')
+                    if start_dt <= record_date <= end_dt:
+                        # 按月聚合
+                        month_key = record_date.strftime('%Y-%m')
+                        if month_key not in monthly_reason_amounts:
+                            monthly_reason_amounts[month_key] = {reason: 0 for reason in self.REASON_LIST}
+                        monthly_reason_amounts[month_key][reason] += refund_amount
+                except:
+                    continue
             
-            # 只有当该原因有数据时才绘制
-            if sum(counts) > 0:
-                ax.plot(date_range, counts, label=reason, color=colors[i], marker='o', markersize=3)
-        
-        # 设置图表样式
-        ax.set_title('退款原因时间趋势（曲线图）', fontweight='bold')
-        ax.set_xlabel('日期')
-        ax.set_ylabel('订单数量')
-        
-        # 设置X轴日期格式
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
-        
-        # 如果日期范围超过30天，调整X轴标签间隔
-        days_count = (end_dt - start_dt).days
-        if days_count > 30:
-            ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-        elif days_count > 90:
+            # 为每个原因创建数据序列
+            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            
+            for i, reason in enumerate(self.REASON_LIST):
+                amounts = []
+                for month_dt in date_range:
+                    month_key = month_dt.strftime('%Y-%m')
+                    amount = monthly_reason_amounts.get(month_key, {}).get(reason, 0)
+                    amounts.append(amount)
+                
+                # 只有当该原因有数据时才绘制
+                if sum(amounts) > 0:
+                    ax.plot(date_range, amounts, label=reason, color=colors[i], marker='o', markersize=3)
+            
+            # 设置图表样式
+            ax.set_title('退款原因时间趋势（按月显示，最多12个月）', fontweight='bold')
+            ax.set_xlabel('月份')
+            ax.set_ylabel('退款金额（元）')
+            
+            # 设置X轴日期格式
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator())
+            
+        elif time_span_days <= 30:  # 30天以内
+            # 按天显示
+            date_range = []
+            current_dt = start_dt
+            while current_dt <= end_dt:
+                date_range.append(current_dt)
+                current_dt += timedelta(days=1)
+            
+            # 按天统计退款金额总和
+            daily_reason_amounts = {}
+            for record in records:
+                record_date_str = record.get('record_date', '')
+                reason = record.get('reason', '')
+                refund_amount = record.get('refund_amount', 0)
+                
+                if not record_date_str or reason not in self.REASON_LIST:
+                    continue
+                
+                try:
+                    record_date = datetime.strptime(record_date_str, '%Y-%m-%d')
+                    if start_dt <= record_date <= end_dt:
+                        # 按天聚合
+                        day_key = record_date.strftime('%Y-%m-%d')
+                        if day_key not in daily_reason_amounts:
+                            daily_reason_amounts[day_key] = {reason: 0 for reason in self.REASON_LIST}
+                        daily_reason_amounts[day_key][reason] += refund_amount
+                except:
+                    continue
+            
+            # 为每个原因创建数据序列
+            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            
+            for i, reason in enumerate(self.REASON_LIST):
+                amounts = []
+                for day_dt in date_range:
+                    day_key = day_dt.strftime('%Y-%m-%d')
+                    amount = daily_reason_amounts.get(day_key, {}).get(reason, 0)
+                    amounts.append(amount)
+                
+                # 只有当该原因有数据时才绘制
+                if sum(amounts) > 0:
+                    ax.plot(date_range, amounts, label=reason, color=colors[i], marker='o', markersize=3)
+            
+            # 设置图表样式
+            ax.set_title('退款原因时间趋势（按天显示）', fontweight='bold')
+            ax.set_xlabel('日期')
+            ax.set_ylabel('退款金额（元）')
+            
+            # 设置X轴日期格式
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+            
+        else:  # 30天到1年之间
+            # 按月显示
+            date_range = []
+            current_dt = start_dt.replace(day=1)  # 从月初开始
+            while current_dt <= end_dt:
+                date_range.append(current_dt)
+                # 下个月
+                if current_dt.month == 12:
+                    current_dt = current_dt.replace(year=current_dt.year + 1, month=1)
+                else:
+                    current_dt = current_dt.replace(month=current_dt.month + 1)
+            
+            # 按月统计退款金额总和
+            monthly_reason_amounts = {}
+            for record in records:
+                record_date_str = record.get('record_date', '')
+                reason = record.get('reason', '')
+                refund_amount = record.get('refund_amount', 0)
+                
+                if not record_date_str or reason not in self.REASON_LIST:
+                    continue
+                
+                try:
+                    record_date = datetime.strptime(record_date_str, '%Y-%m-%d')
+                    if start_dt <= record_date <= end_dt:
+                        # 按月聚合
+                        month_key = record_date.strftime('%Y-%m')
+                        if month_key not in monthly_reason_amounts:
+                            monthly_reason_amounts[month_key] = {reason: 0 for reason in self.REASON_LIST}
+                        monthly_reason_amounts[month_key][reason] += refund_amount
+                except:
+                    continue
+            
+            # 为每个原因创建数据序列
+            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            
+            for i, reason in enumerate(self.REASON_LIST):
+                amounts = []
+                for month_dt in date_range:
+                    month_key = month_dt.strftime('%Y-%m')
+                    amount = monthly_reason_amounts.get(month_key, {}).get(reason, 0)
+                    amounts.append(amount)
+                
+                # 只有当该原因有数据时才绘制
+                if sum(amounts) > 0:
+                    ax.plot(date_range, amounts, label=reason, color=colors[i], marker='o', markersize=3)
+            
+            # 设置图表样式
+            ax.set_title('退款原因时间趋势（按月显示）', fontweight='bold')
+            ax.set_xlabel('月份')
+            ax.set_ylabel('退款金额（元）')
+            
+            # 设置X轴日期格式
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
             ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # 添加图例
