@@ -359,7 +359,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold;</string>
+        <string notr="true">QPushButton { padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold; } QPushButton:hover { background-color: #FF5252; } QPushButton:pressed { background-color: #FF3D3D; }</string>
        </property>
       </widget>
      </item>
@@ -375,7 +375,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">padding: 8px 16px; border: none; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold;</string>
+        <string notr="true">QPushButton { padding: 8px 16px; border: none; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; } QPushButton:hover { background-color: #26C6DA; } QPushButton:pressed { background-color: #00ACC1; }</string>
        </property>
       </widget>
      </item>
