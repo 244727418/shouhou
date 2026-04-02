@@ -58,11 +58,17 @@
 QTableWidget {
     background-color: white;
     alternate-background-color: #f8f9fa;
-    selection-background-color: #87CEEB;
+    selection-background-color: rgba(135, 206, 235, 0.5);  /* 浅蓝色，不透明度50% */
     selection-color: black;
     gridline-color: #dee2e6;
     border: 1px solid #dee2e6;
     border-radius: 6px;
+    outline: 0;  /* 删除焦点虚线 */
+    border: none;  /* 删除边框 */
+}
+
+QTableWidget:focus {
+    outline: 0;  /* 删除焦点虚线 */
 }
 
 QTableWidget::item {
@@ -71,16 +77,28 @@ QTableWidget::item {
 }
 
 QTableWidget::item:selected {
-    background-color: #6C757D;
-    color: white;
+    background-color: rgba(135, 206, 235, 0.5);  /* 浅蓝色，不透明度50% */
+    color: black;
+}
+
+QTableWidget::item:focus {
+    background-color: rgba(30, 144, 255, 0.7);  /* 深蓝色，不透明度70% - 美化焦点样式 */
+    color: black;  /* 保持黑色文字 */
+    border: none;  /* 删除边框 */
+}
+
+QTableWidget::item:selected:focus {
+    background-color: rgba(30, 144, 255, 0.9);  /* 更深的蓝色，不透明度90% - 选中且焦点状态 */
+    color: black;  /* 保持黑色文字 */
 }
 
 QHeaderView::section {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF9E80, stop:0.09 #80DEEA, stop:0.18 #A5D6A7, stop:0.27 #CE93D8, stop:0.36 #FFCC80, stop:0.45 #90CAF9, stop:0.54 #C5E1A5, stop:0.63 #F48FB1, stop:0.72 #B39DDB, stop:0.81 #FFAB91, stop:1 #81D4FA);
-    color: #333333;
+    background-color: #C8E6C9;  /* 淡绿色 */
+    color: #2E7D32;            /* 深绿色文字 */
     padding: 8px;
     border: none;
     font-weight: bold;
+    border-bottom: 2px solid #81C784;  /* 底部边框 */
 }
       </string>
      </property>

@@ -2022,16 +2022,16 @@ class RefundManager(QMainWindow):
         week_btn.clicked.connect(lambda: self.set_quick_date(7))
         month_btn.clicked.connect(lambda: self.set_quick_date(30))
         all_time_btn.clicked.connect(self.show_all_time)
-        # 右下角：订单记录表格
-        table_group = QGroupBox("订单记录表格")
-        table_layout = QVBoxLayout(table_group)
+        # 右下角：订单记录表格 - 使用UI文件
+        table_group = loadUi("table_panel.ui")
         
-        # 调试信息标签
-        self.debug_label = QLabel("表格区域 - 显示筛选后的订单记录")
-        self.debug_label.setStyleSheet("color: #666; font-size: 10px; padding: 5px; background-color: #f0f0f0; border: 1px solid #ccc;")
-        table_layout.addWidget(self.debug_label)
+        # 获取UI文件中的表格引用
+        self.table = table_group.findChild(QTableWidget, "order_table")
         
-        self.table = QTableWidget()
+        # 获取UI文件中的调试标签引用
+        self.debug_label = table_group.findChild(QLabel, "debug_label")
+        
+        # 设置表格基本属性
         self.table.setColumnCount(11)  # 恢复为11列
         self.table.setHorizontalHeaderLabels(["店铺名称", "订单号", "退款原因", "退款金额", "撤销", "打款补偿", "补偿金额", "驳回", "驳回结果", "登记日期", "备注"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -2068,7 +2068,6 @@ class RefundManager(QMainWindow):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         # 连接单元格编辑完成信号
         self.table.cellChanged.connect(self.on_cell_changed)
-        table_layout.addWidget(self.table)
         
         # 将区域添加到分割器中
         # 上部区域：信息录入区（左）、AI分析区（中）、店铺信息区（右）
@@ -2883,31 +2882,7 @@ class RefundManager(QMainWindow):
             border: 2px solid #6C757D;
         }
         
-        /* 表格样式 */
-        QTableWidget {
-            gridline-color: #E9ECEF;
-            border: 1px solid #CED4DA;
-            border-radius: 4px;
-            background-color: white;
-        }
-        
-        QTableWidget::item {
-            padding: 6px;
-            border-bottom: 1px solid #F8F9FA;
-        }
-        
-        QTableWidget::item:selected {
-            background-color: #6C757D;  /* 中灰选中 */
-            color: white;
-        }
-        
-        QHeaderView::section {
-            background-color: #6C757D;  /* 中灰表头 */
-            color: white;
-            padding: 8px;
-            border: none;
-            font-weight: bold;
-        }
+        /* 表格样式 - 已由table_panel.ui文件控制，此处删除相关设置 */
         
         /* 复选框样式 */
         QCheckBox {
@@ -5848,13 +5823,7 @@ class RefundManager(QMainWindow):
         if color.isValid():
             # 更新字体颜色预览
             self.font_color_preview.setStyleSheet(f"color: {color.name()}; border: 1px solid black; padding: 5px;")
-            # 更新表格字体颜色
-            self.table.setStyleSheet(f"""
-                background-color: white;
-                selection-background-color: #87CEEB;  /* 选中背景 */
-                selection-color: {color.name()};  /* 自定义选中文字颜色 */
-                color: {color.name()};  /* 自定义表格字体颜色 */
-            """)
+            # 表格样式已由table_panel.ui文件控制，不再动态设置
 
     def pick_selection_color(self):
         """选择选中行颜色"""
@@ -5862,12 +5831,7 @@ class RefundManager(QMainWindow):
         if color.isValid():
             # 更新预览
             self.color_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid black;")
-            # 更新表格选中颜色
-            self.table.setStyleSheet(f"""
-                background-color: white;
-                selection-background-color: {color.name()};  /* 自定义选中背景 */
-                selection-color: black;  /* 黑色选中文字 */
-            """)
+            # 表格样式已由table_panel.ui文件控制，不再动态设置
 
     def load_store_colors(self):
         """加载店铺颜色列表（显示店铺颜色）"""
