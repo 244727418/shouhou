@@ -3292,7 +3292,7 @@ class RefundManager(QMainWindow):
             print("[DEBUG] add_record: 清空输入完成")
 
             print("[DEBUG] add_record: 开始加载表格数据")
-            self.load_table_data()
+            self.load_table_data(force_reload=True)
             print("[DEBUG] add_record: 加载表格数据完成")
 
         except Exception as e:
