@@ -6,33 +6,132 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>300</width>
-    <height>150</height>
+    <width>400</width>
+    <height>200</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>添加新店铺</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true">
+/* 对话框整体样式 */
+QDialog {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #f8f9fa, stop: 1 #e9ecef);
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+}
+
+/* 标签样式 */
+QLabel {
+    font-family: "YouYuan";
+    font-size: 14px;
+    color: #495057;
+    font-weight: bold;
+}
+
+/* 输入框样式 */
+QLineEdit {
+    font-family: "YouYuan";
+    font-size: 12px;
+    padding: 8px 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    background-color: white;
+    selection-background-color: #4CAF50;
+}
+
+QLineEdit:focus {
+    border-color: #4CAF50;
+    background-color: #f8fff8;
+}
+
+QLineEdit:placeholder {
+    color: #adb5bd;
+    font-style: italic;
+}
+
+/* 按钮样式 */
+QPushButton {
+    font-family: "YouYuan";
+    font-size: 12px;
+    font-weight: bold;
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    min-width: 80px;
+}
+
+/* 添加按钮 */
+QPushButton#add_btn {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #4CAF50, stop: 1 #45a049);
+    color: white;
+}
+
+QPushButton#add_btn:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #45a049, stop: 1 #3d8b40);
+}
+
+QPushButton#add_btn:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #3d8b40, stop: 1 #357935);
+}
+
+/* 取消按钮 */
+QPushButton#cancel_btn {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #6c757d, stop: 1 #5a6268);
+    color: white;
+}
+
+QPushButton#cancel_btn:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #5a6268, stop: 1 #545b62);
+}
+
+QPushButton#cancel_btn:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #545b62, stop: 1 #4e555b);
+}
+   </string>
+  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
-    <number>12</number>
+    <number>16</number>
    </property>
    <property name="leftMargin">
-    <number>16</number>
+    <number>20</number>
    </property>
    <property name="topMargin">
-    <number>16</number>
+    <number>20</number>
    </property>
    <property name="rightMargin">
-    <number>16</number>
+    <number>20</number>
    </property>
    <property name="bottomMargin">
-    <number>16</number>
+    <number>20</number>
    </property>
+   
+   <!-- 标题区域 -->
+   <item>
+    <widget class="QLabel" name="title_label">
+     <property name="text">
+      <string>&lt;h3 style='color: #2c3e50; margin: 0;'&gt;添加新店铺&lt;/h3&gt;</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   
+   <!-- 表单区域 -->
    <item>
     <layout class="QFormLayout" name="formLayout">
      <property name="horizontalSpacing">
-      <number>12</number>
+      <number>16</number>
      </property>
      <property name="verticalSpacing">
       <number>12</number>
@@ -49,42 +148,23 @@
        <property name="placeholderText">
         <string>请输入店铺名称</string>
        </property>
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>35</height>
+        </size>
+       </property>
       </widget>
      </item>
     </layout>
    </item>
-   <item>
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>20</height>
-      </size>
-     </property>
-    </spacer>
-   </item>
+   
+   <!-- 按钮区域 -->
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_buttons">
      <property name="spacing">
-      <number>12</number>
+      <number>16</number>
      </property>
-     <item>
-      <widget class="QPushButton" name="add_btn">
-       <property name="text">
-        <string>添加</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="cancel_btn">
-       <property name="text">
-        <string>取消</string>
-       </property>
-      </widget>
-     </item>
      <item>
       <spacer name="horizontalSpacer">
        <property name="orientation">
@@ -97,6 +177,32 @@
         </size>
        </property>
       </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="add_btn">
+       <property name="text">
+        <string>添加店铺</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>100</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel_btn">
+       <property name="text">
+        <string>取消</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>35</height>
+        </size>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>

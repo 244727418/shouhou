@@ -238,68 +238,47 @@ class MultiSelectComboBox(QWidget):
             self.itemsChanged.emit()
 
 
+# ---------------------------- 添加店铺对话框 --------------------------------
+class AddStoreDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        loadUi("dialog_add_store.ui", self)
+        self.setup_connections()
+
+    def setup_connections(self):
+        """设置信号连接"""
+        self.add_btn.clicked.connect(self.add_store)
+        self.cancel_btn.clicked.connect(self.reject)
+
+    def add_store(self):
+        """添加店铺"""
+        store_name = self.store_name_edit.text().strip()
+        if not store_name:
+            QMessageBox.warning(self, "输入错误", "请输入店铺名称")
+            return
+        
+        # 这里可以添加保存到数据库的逻辑
+        self.accept()
+
+    def get_store_name(self):
+        """获取店铺名称"""
+        return self.store_name_edit.text().strip()
+
 # ---------------------------- 店铺基本信息设置对话框 --------------------------------
 class StoreSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.init_ui()
+        loadUi("dialog_store_settings.ui", self)
+        self.setup_connections()
 
-    def init_ui(self):
-        self.setWindowTitle("店铺基本信息设置")
-        self.setFixedSize(400, 300)
-        
-        layout = QVBoxLayout()
-        
-        # 表单布局
-        form_layout = QFormLayout()
-        
-        # 日单量
-        self.daily_orders_edit = QLineEdit()
-        self.daily_orders_edit.setPlaceholderText("请输入日单量")
-        form_layout.addRow("日单量：", self.daily_orders_edit)
-        
-        # 日销售金额
-        self.daily_sales_edit = QLineEdit()
-        self.daily_sales_edit.setPlaceholderText("请输入日销售金额")
-        form_layout.addRow("日销售金额：", self.daily_sales_edit)
-        
-        # 退款预算设置
-        refund_budget_layout = QHBoxLayout()
-        
-        self.refund_budget_amount_edit = QLineEdit()
-        self.refund_budget_amount_edit.setPlaceholderText("输入金额")
-        self.refund_budget_amount_edit.textChanged.connect(self.on_amount_changed)
-        refund_budget_layout.addWidget(self.refund_budget_amount_edit)
-        
-        refund_budget_layout.addWidget(QLabel("或"))
-        
-        self.refund_budget_percent_edit = QLineEdit()
-        self.refund_budget_percent_edit.setPlaceholderText("输入百分比")
-        self.refund_budget_percent_edit.textChanged.connect(self.on_percent_changed)
-        refund_budget_layout.addWidget(self.refund_budget_percent_edit)
-        
-        refund_budget_layout.addWidget(QLabel("%"))
-        
-        form_layout.addRow("退款预算：", refund_budget_layout)
-        
-        layout.addLayout(form_layout)
-        layout.addStretch()
-        
-        # 按钮布局
-        button_layout = QHBoxLayout()
-        
-        self.save_btn = QPushButton("保存")
+    def setup_connections(self):
+        """设置信号连接"""
         self.save_btn.clicked.connect(self.save_settings)
-        button_layout.addWidget(self.save_btn)
-        
-        self.cancel_btn = QPushButton("取消")
         self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-        
-        layout.addLayout(button_layout)
-        
-        self.setLayout(layout)
+        self.refund_budget_amount_edit.textChanged.connect(self.on_amount_changed)
+        self.refund_budget_percent_edit.textChanged.connect(self.on_percent_changed)
 
     def on_amount_changed(self, text):
         """金额输入变化时自动计算百分比"""
@@ -1747,15 +1726,15 @@ class RefundManager(QMainWindow):
         top_info_layout = QVBoxLayout()
         top_info_layout.setSpacing(6)  # 设置行间距
         
-        # 第一行：当前店铺和订单量
+        # 第一行：当前店铺、订单量和设置按钮
         first_row_layout = QHBoxLayout()
         
         # 店铺名称显示
         current_store_label_title = QLabel("当前店铺：")
-        current_store_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        current_store_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         first_row_layout.addWidget(current_store_label_title)
         self.current_store_label = QLabel("未选择")
-        self.current_store_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        self.current_store_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         first_row_layout.addWidget(self.current_store_label)
         
         # 添加弹性空间
@@ -1763,21 +1742,52 @@ class RefundManager(QMainWindow):
         
         # 订单量显示
         orders_label_title = QLabel("订单量：")
-        orders_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        orders_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         first_row_layout.addWidget(orders_label_title)
         self.orders_label = QLabel("0单")
-        self.orders_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        self.orders_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         first_row_layout.addWidget(self.orders_label)
+        
+        # 添加弹性空间
+        first_row_layout.addStretch()
+        
+        # 店铺基本信息设置按钮（文字按钮）
+        self.store_settings_btn = QPushButton("设置")
+        self.store_settings_btn.setStyleSheet("""
+            QPushButton { 
+                font-family: 'Microsoft YaHei';
+                font-size: 14px; 
+                border: 2px solid #1976D2; 
+                border-radius: 6px; 
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                min-width: 60px;
+                min-height: 34px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+                border-color: #1565C0;
+            }
+            QPushButton:pressed {
+                background-color: #1565C0;
+                border-color: #0D47A1;
+            }
+        """)
+        self.store_settings_btn.setToolTip("店铺基本信息设置")
+        self.store_settings_btn.clicked.connect(self.open_store_settings)
+        first_row_layout.addWidget(self.store_settings_btn)
         
         # 第二行：销售金额和退款预算剩余
         second_row_layout = QHBoxLayout()
         
         # 销售金额显示
         sales_label_title = QLabel("销售金额：")
-        sales_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        sales_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         second_row_layout.addWidget(sales_label_title)
         self.sales_label = QLabel("¥0.00")
-        self.sales_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E8B57;")
+        self.sales_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         second_row_layout.addWidget(self.sales_label)
         
         # 添加弹性空间
@@ -1785,18 +1795,11 @@ class RefundManager(QMainWindow):
         
         # 日退款预算剩余
         daily_budget_label_title = QLabel("退款预算剩余：")
-        daily_budget_label_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        daily_budget_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         second_row_layout.addWidget(daily_budget_label_title)
         self.daily_budget_remaining_label = QLabel("¥0.00")
-        self.daily_budget_remaining_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #FF6B6B;")
+        self.daily_budget_remaining_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #FF6B6B; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         second_row_layout.addWidget(self.daily_budget_remaining_label)
-        
-        # 店铺基本信息设置按钮（小齿轮图标）
-        self.store_settings_btn = QPushButton("⚙")
-        self.store_settings_btn.setStyleSheet("QPushButton { font-size: 18px; border: 1px solid #ccc; border-radius: 3px; }")
-        self.store_settings_btn.setToolTip("店铺基本信息设置")
-        self.store_settings_btn.clicked.connect(self.open_store_settings)
-        second_row_layout.addWidget(self.store_settings_btn)
         
         # 将两行布局添加到垂直布局中
         top_info_layout.addLayout(first_row_layout)
@@ -1804,10 +1807,7 @@ class RefundManager(QMainWindow):
         
         store_info_layout.addLayout(top_info_layout)
         
-        # 店铺统计信息（标题进一步增大）
-        store_stats_label_title = QLabel("统计信息")
-        store_stats_label_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin-bottom: 8px;")
-        store_info_layout.addWidget(store_stats_label_title)
+        # 店铺统计信息（删除标题标签）
         
         # 创建分割器容器，让用户可以自由拖拽调整大小
         splitter_container = QWidget()
@@ -1836,11 +1836,11 @@ class RefundManager(QMainWindow):
         refund_count_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
         
         count_title = QLabel("退款数量统计")
-        count_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px;")
+        count_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         refund_count_layout.addWidget(count_title)
         
         self.refund_count_label = QLabel("品质退款：0单\n其他退款：0单\n撤销品质退款：0单\n总退款率：0.00%")
-        self.refund_count_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #343a40; margin: 0px; line-height: 18px;")
+        self.refund_count_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #343a40; margin: 0px; line-height: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px;")
         self.refund_count_label.setWordWrap(True)
         self.refund_count_label.setMinimumHeight(90)  # 增加最小高度
         self.refund_count_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
@@ -1853,11 +1853,11 @@ class RefundManager(QMainWindow):
         amount_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
         
         amount_title = QLabel("售后金额统计")
-        amount_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px;")
+        amount_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         amount_layout.addWidget(amount_title)
         
         self.amount_label = QLabel("售后总金额：¥0.00\n售后金额占比：0.00%\n品质售后金额：¥0.00\n其他售后金额：¥0.00")
-        self.amount_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #343a40; margin: 0px; line-height: 18px;")
+        self.amount_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #343a40; margin: 0px; line-height: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px;")
         self.amount_label.setWordWrap(True)
         self.amount_label.setMinimumHeight(90)  # 增加最小高度
         self.amount_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
@@ -1939,13 +1939,16 @@ class RefundManager(QMainWindow):
         # 获取按钮引用
         reset_btn = search_group.findChild(QPushButton, "reset_btn")
         show_all_btn = search_group.findChild(QPushButton, "show_all_btn")
-        today_btn = search_group.findChild(QPushButton, "today_btn")
-        yesterday_btn = search_group.findChild(QPushButton, "yesterday_btn")
-        prev_day_btn = search_group.findChild(QPushButton, "prev_day_btn")
-        next_day_btn = search_group.findChild(QPushButton, "next_day_btn")
-        week_btn = search_group.findChild(QPushButton, "week_btn")
-        month_btn = search_group.findChild(QPushButton, "month_btn")
-        all_time_btn = search_group.findChild(QPushButton, "all_time_btn")
+        
+        # 加载独立的快捷日期UI文件
+        quick_date_group = loadUi("quick_date_panel.ui")
+        today_btn = quick_date_group.findChild(QPushButton, "today_btn")
+        yesterday_btn = quick_date_group.findChild(QPushButton, "yesterday_btn")
+        prev_day_btn = quick_date_group.findChild(QPushButton, "prev_day_btn")
+        next_day_btn = quick_date_group.findChild(QPushButton, "next_day_btn")
+        week_btn = quick_date_group.findChild(QPushButton, "week_btn")
+        month_btn = quick_date_group.findChild(QPushButton, "month_btn")
+        all_time_btn = quick_date_group.findChild(QPushButton, "all_time_btn")
         
         # 设置控件初始值
         self.search_store_combo.addItem("全部")
@@ -2085,13 +2088,14 @@ class RefundManager(QMainWindow):
         
         # 删除上部区域最小宽度限制，让用户完全自由调整
         
-        # 下部左侧：垂直布局（搜索筛选区 - 已包含快捷日期）
+        # 下部左侧：垂直布局（搜索筛选区 + 快捷日期）
         left_bottom_widget = QWidget()
         left_bottom_layout = QVBoxLayout(left_bottom_widget)
         left_bottom_layout.addWidget(search_group)
+        left_bottom_layout.addWidget(quick_date_group)  # 添加快捷日期组件
         
-        # 下部区域：左侧（搜索筛选）和右侧（订单记录表格）
-        bottom_splitter.addWidget(left_bottom_widget)  # 左：搜索筛选区
+        # 下部区域：左侧（搜索筛选 + 快捷日期）和右侧（订单记录表格）
+        bottom_splitter.addWidget(left_bottom_widget)  # 左：搜索筛选区 + 快捷日期
         bottom_splitter.addWidget(table_group)         # 右：订单记录表格
         
         # 删除下部区域最小宽度限制，让用户完全自由调整
@@ -2412,6 +2416,17 @@ class RefundManager(QMainWindow):
         store_name = self.store_combo.currentText()
         if store_name:
             self.update_store_stats(store_name)
+
+    def open_add_store_dialog(self):
+        """打开添加店铺对话框"""
+        dialog = AddStoreDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            store_name = dialog.get_store_name()
+            if store_name:
+                # 这里可以添加保存店铺到数据库的逻辑
+                QMessageBox.information(self, "添加成功", f"店铺 '{store_name}' 已添加")
+                # 刷新店铺列表
+                self.load_stores()
 
     def open_store_settings(self):
         """打开店铺基本信息设置对话框"""
