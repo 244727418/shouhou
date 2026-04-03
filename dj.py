@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QColorDialog, QListWidget, QListWidgetItem, QItemDelegate, QFontDialog, QSpinBox, QSlider, QSplitter,
     QSizePolicy, QProgressDialog, QTextEdit
 )
-from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation
+from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation, QObject, Q_ARG
 from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette
 from PyQt5.uic import loadUi
 
@@ -48,6 +48,29 @@ from openpyxl.utils import get_column_letter
 import xlrd  # 用于支持 .xls 文件，需要安装 xlrd
 import os
 import sys
+import subprocess  # 用于启动更新程序
+import shutil  # 用于文件操作
+import tempfile  # 用于创建临时目录
+import threading  # 用于后台下载
+
+# ==================== 软件版本配置 ====================
+# 【重要】每次发布新版本时，必须修改这里的版本号！
+# 版本号格式：主版本.次版本.修订号
+CURRENT_VERSION = "1.3.2"
+
+# GitHub仓库配置
+# 【重要】请修改为你的GitHub用户名和仓库名
+GITHUB_OWNER = "244727418"  # 你的GitHub用户名
+GITHUB_REPO = "shouhou"  # 你的仓库名
+
+# GitHub Releases API地址
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+
+# 是否启用自动更新检查
+ENABLE_AUTO_UPDATE = True
+
+# 更新检查间隔（秒），启动后延迟多久检查更新
+UPDATE_CHECK_DELAY = 3
 
 def get_resource_path(relative_path):
     """获取资源文件的绝对路径，支持打包后的exe文件"""
@@ -471,6 +494,423 @@ class BubbleMessage(QWidget):
         
         self.show()
         self.fade_in.start()
+
+
+# ==================== 自动更新模块 ====================
+
+class UpdateDialog(QDialog):
+    """
+    更新对话框
+    显示新版本信息和更新按钮
+    """
+    def __init__(self, current_version, new_version, release_notes, download_url, parent=None):
+        super().__init__(parent)
+        self.current_version = current_version
+        self.new_version = new_version
+        self.release_notes = release_notes
+        self.download_url = download_url
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("发现新版本")
+        self.setFixedSize(500, 400)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 12px;
+            }
+            QProgressBar {
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 5px;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("🎉 发现新版本！")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #e74c3c;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 版本信息
+        version_layout = QHBoxLayout()
+        current_label = QLabel(f"当前版本: {self.current_version}")
+        current_label.setStyleSheet("color: #7f8c8d;")
+        new_label = QLabel(f"最新版本: {self.new_version}")
+        new_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        version_layout.addWidget(current_label)
+        version_layout.addStretch()
+        version_layout.addWidget(new_label)
+        layout.addLayout(version_layout)
+        
+        # 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("background-color: #ddd;")
+        layout.addWidget(line)
+        
+        # 更新内容标签
+        notes_label = QLabel("更新内容:")
+        notes_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(notes_label)
+        
+        # 更新内容文本框
+        self.notes_text = QTextEdit()
+        self.notes_text.setReadOnly(True)
+        self.notes_text.setText(self.release_notes if self.release_notes else "暂无更新说明")
+        self.notes_text.setMinimumHeight(120)
+        layout.addWidget(self.notes_text)
+        
+        # 进度条（初始隐藏）
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+        
+        # 状态标签
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: #3498db; font-size: 12px;")
+        layout.addWidget(self.status_label)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        
+        self.later_btn = QPushButton("稍后更新")
+        self.later_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        self.later_btn.clicked.connect(self.reject)
+        
+        self.update_btn = QPushButton("立即更新")
+        self.update_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        self.update_btn.clicked.connect(self.start_update)
+        
+        button_layout.addWidget(self.later_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.update_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+    
+    def start_update(self):
+        """开始更新"""
+        self.update_btn.setEnabled(False)
+        self.later_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("正在下载新版本...")
+        
+        # 在后台线程中下载
+        self.download_thread = threading.Thread(target=self.download_update)
+        self.download_thread.daemon = True
+        self.download_thread.start()
+    
+    def download_update(self):
+        """下载更新文件"""
+        try:
+            # 获取当前exe路径
+            current_exe = sys.executable
+            
+            # 创建临时目录
+            temp_dir = tempfile.mkdtemp()
+            new_exe_path = os.path.join(temp_dir, "售后登记表_new.exe")
+            
+            # 下载文件
+            response = requests.get(self.download_url, stream=True, timeout=300)
+            total_size = int(response.headers.get('content-length', 0))
+            
+            downloaded = 0
+            chunk_size = 8192
+            
+            with open(new_exe_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            progress = int((downloaded / total_size) * 100)
+                            # 使用信号更新UI
+                            from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+                            QMetaObject.invokeMethod(
+                                self.progress_bar,
+                                "setValue",
+                                Qt.QueuedConnection,
+                                Q_ARG(int, progress)
+                            )
+            
+            # 下载完成，创建更新脚本
+            self.create_updater_script(current_exe, new_exe_path)
+            
+            # 更新UI
+            from PyQt5.QtCore import QMetaObject, Qt
+            QMetaObject.invokeMethod(
+                self.status_label,
+                "setText",
+                Qt.QueuedConnection,
+                Q_ARG(str, "下载完成！即将安装更新...")
+            )
+            
+            # 延迟后启动更新脚本
+            QTimer.singleShot(1500, self.launch_updater)
+            
+        except Exception as e:
+            from PyQt5.QtCore import QMetaObject, Qt
+            QMetaObject.invokeMethod(
+                self.status_label,
+                "setText",
+                Qt.QueuedConnection,
+                Q_ARG(str, f"下载失败: {str(e)}")
+            )
+            QMetaObject.invokeMethod(
+                self.update_btn,
+                "setEnabled",
+                Qt.QueuedConnection,
+                Q_ARG(bool, True)
+            )
+            QMetaObject.invokeMethod(
+                self.later_btn,
+                "setEnabled",
+                Qt.QueuedConnection,
+                Q_ARG(bool, True)
+            )
+    
+    def create_updater_script(self, old_exe, new_exe):
+        """创建更新脚本"""
+        # 更新脚本路径
+        updater_path = os.path.join(tempfile.gettempdir(), "update_script.bat")
+        
+        # 创建批处理脚本
+        script_content = f"""@echo off
+chcp 65001 >nul
+echo 正在安装更新...
+timeout /t 2 /nobreak >nul
+
+:: 等待原程序退出
+:wait_loop
+tasklist | findstr "{os.path.basename(old_exe)}" >nul
+if errorlevel 1 goto continue
+timeout /t 1 /nobreak >nul
+goto wait_loop
+
+:continue
+:: 替换文件
+copy /Y "{new_exe}" "{old_exe}"
+if errorlevel 1 (
+    echo 更新失败，请手动替换文件
+    pause
+    exit /b 1
+)
+
+:: 删除临时文件
+del "{new_exe}"
+
+:: 启动新版本
+echo 更新完成，正在启动新版本...
+start "" "{old_exe}"
+
+:: 删除自己
+del "%~f0"
+"""
+        
+        with open(updater_path, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+        
+        self.updater_path = updater_path
+    
+    def launch_updater(self):
+        """启动更新程序"""
+        try:
+            # 启动更新脚本
+            subprocess.Popen(
+                self.updater_path,
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+            
+            # 接受对话框并退出程序
+            self.accept()
+            
+            # 退出当前程序
+            QApplication.instance().quit()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "更新错误", f"启动更新失败: {str(e)}")
+            self.update_btn.setEnabled(True)
+            self.later_btn.setEnabled(True)
+
+
+class UpdateChecker(QObject):
+    """
+    更新检查器
+    负责检查GitHub上的最新版本
+    """
+    update_available = pyqtSignal(dict)  # 发现更新时发射信号
+    check_finished = pyqtSignal()  # 检查完成时发射信号
+    
+    def __init__(self):
+        super().__init__()
+        self.latest_version = None
+        self.download_url = None
+        self.release_notes = None
+    
+    def check_for_updates(self):
+        """检查更新（在后台线程中运行）"""
+        thread = threading.Thread(target=self._check_update_thread)
+        thread.daemon = True
+        thread.start()
+    
+    def _check_update_thread(self):
+        """后台检查更新的线程"""
+        try:
+            # 发送GitHub API请求
+            headers = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'RefundManager-UpdateChecker'
+            }
+            
+            response = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                release_data = response.json()
+                
+                # 获取最新版本号（去掉v前缀）
+                latest_version = release_data.get('tag_name', '').lstrip('v')
+                
+                if not latest_version:
+                    self.check_finished.emit()
+                    return
+                
+                # 比较版本号
+                if self._compare_versions(latest_version, CURRENT_VERSION) > 0:
+                    # 有新版本
+                    self.latest_version = latest_version
+                    self.release_notes = release_data.get('body', '暂无更新说明')
+                    
+                    # 查找exe文件的下载链接
+                    assets = release_data.get('assets', [])
+                    self.download_url = None
+                    
+                    for asset in assets:
+                        name = asset.get('name', '')
+                        if name.endswith('.exe') and '售后登记表' in name:
+                            self.download_url = asset.get('browser_download_url')
+                            break
+                    
+                    # 如果没找到特定文件，使用第一个exe文件
+                    if not self.download_url:
+                        for asset in assets:
+                            if asset.get('name', '').endswith('.exe'):
+                                self.download_url = asset.get('browser_download_url')
+                                break
+                    
+                    if self.download_url:
+                        from PyQt5.QtCore import QMetaObject, Qt
+                        QMetaObject.invokeMethod(
+                            self,
+                            "_emit_update_available",
+                            Qt.QueuedConnection
+                        )
+                    else:
+                        self.check_finished.emit()
+                else:
+                    self.check_finished.emit()
+            else:
+                self.check_finished.emit()
+                
+        except Exception as e:
+            print(f"检查更新时出错: {e}")
+            self.check_finished.emit()
+    
+    def _emit_update_available(self):
+        """发射更新可用信号（在主线程中调用）"""
+        self.update_available.emit({
+            'version': self.latest_version,
+            'notes': self.release_notes,
+            'url': self.download_url
+        })
+    
+    def _compare_versions(self, version1, version2):
+        """
+        比较两个版本号
+        返回: 1表示v1>v2, 0表示相等, -1表示v1<v2
+        """
+        try:
+            v1_parts = [int(x) for x in version1.split('.')]
+            v2_parts = [int(x) for x in version2.split('.')]
+            
+            # 补齐版本号位数
+            while len(v1_parts) < len(v2_parts):
+                v1_parts.append(0)
+            while len(v2_parts) < len(v1_parts):
+                v2_parts.append(0)
+            
+            for i in range(len(v1_parts)):
+                if v1_parts[i] > v2_parts[i]:
+                    return 1
+                elif v1_parts[i] < v2_parts[i]:
+                    return -1
+            
+            return 0
+        except:
+            return 0
+
 
 # ---------------------------- 自定义表格委托类 --------------------------------
 class CustomItemDelegate(QItemDelegate):
@@ -1578,12 +2018,43 @@ class RefundManager(QMainWindow):
         self.load_stores()
         self.load_table_data()
         self.setup_shortcuts()
+        
+        # ==================== 自动更新检查 ====================
+        # 程序启动后延迟检查更新
+        if ENABLE_AUTO_UPDATE:
+            self.update_checker = UpdateChecker()
+            self.update_checker.update_available.connect(self.show_update_dialog)
+            QTimer.singleShot(UPDATE_CHECK_DELAY * 1000, self.check_for_updates)
+    
+    def check_for_updates(self):
+        """检查更新"""
+        try:
+            self.update_checker.check_for_updates()
+        except Exception as e:
+            print(f"启动更新检查时出错: {e}")
+    
+    def show_update_dialog(self, update_info):
+        """显示更新对话框"""
+        try:
+            dialog = UpdateDialog(
+                CURRENT_VERSION,
+                update_info['version'],
+                update_info['notes'],
+                update_info['url'],
+                parent=self
+            )
+            dialog.exec_()
+        except Exception as e:
+            QMessageBox.warning(self, "更新检查", f"显示更新对话框时出错: {e}")
 
     def init_ui(self):
-        self.setWindowTitle("电商售后品质退款管理工具")
+        self.setWindowTitle(f"电商售后品质退款管理工具 v{CURRENT_VERSION}")
         # 【窗口默认尺寸设置】第451行 - 修改这里的数字来改变窗口默认大小
         self.resize(1700, 950)  # 窗口宽度1700像素，高度950像素
         self.setMinimumSize(0, 0)  # 设置窗口最小尺寸，允许适当缩小
+        
+        # 创建菜单栏
+        self._create_menu_bar()
         
         # 应用护眼配色样式表
         self.apply_stylesheet()
@@ -2121,6 +2592,80 @@ class RefundManager(QMainWindow):
 
         # 初始化店铺信息下拉框
         self.load_store_info_combo()
+
+    def _create_menu_bar(self):
+        """创建菜单栏"""
+        # 创建帮助菜单
+        help_menu = QMenu("帮助", self)
+        
+        # 检查更新菜单项
+        check_update_action = QAction("检查更新", self)
+        check_update_action.triggered.connect(self.manual_check_update)
+        help_menu.addAction(check_update_action)
+        
+        # 分隔线
+        help_menu.addSeparator()
+        
+        # 关于菜单项
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+        
+        # 将帮助菜单添加到菜单栏
+        self.menuBar().addMenu(help_menu)
+    
+    def manual_check_update(self):
+        """手动检查更新"""
+        try:
+            # 创建进度对话框
+            progress = QProgressDialog("正在检查更新...", None, 0, 0, self)
+            progress.setWindowTitle("检查更新")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setCancelButton(None)
+            progress.show()
+            
+            # 创建更新检查器
+            self.manual_update_checker = UpdateChecker()
+            self.manual_update_checker.update_available.connect(
+                lambda info: self._on_manual_update_found(info, progress)
+            )
+            self.manual_update_checker.check_finished.connect(
+                lambda: self._on_manual_check_finished(progress)
+            )
+            
+            # 开始检查
+            self.manual_update_checker.check_for_updates()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "检查更新", f"检查更新时出错: {e}")
+    
+    def _on_manual_update_found(self, update_info, progress):
+        """手动检查时发现更新"""
+        progress.close()
+        self.show_update_dialog(update_info)
+    
+    def _on_manual_check_finished(self, progress):
+        """手动检查完成（无更新）"""
+        progress.close()
+        QMessageBox.information(
+            self,
+            "检查更新",
+            f"当前已是最新版本 (v{CURRENT_VERSION})"
+        )
+    
+    def show_about_dialog(self):
+        """显示关于对话框"""
+        QMessageBox.about(
+            self,
+            "关于",
+            f"""<h2>电商售后品质退款管理工具</h2>
+            <p><b>版本:</b> v{CURRENT_VERSION}</p>
+            <p><b>功能:</b> 管理售后退款记录、AI智能分析、数据可视化</p>
+            <p><b>更新:</b> 支持自动在线更新</p>
+            <hr>
+            <p style='color: #666;'>如有问题请联系开发者</p>
+            """
+        )
 
     def _apply_dopamine_styles(self):
         """应用多巴胺配色方案到信息录入区"""
@@ -2953,6 +3498,14 @@ class RefundManager(QMainWindow):
 
     def load_stores(self):
         """加载店铺列表到所有下拉框"""
+        # 检查控件是否存在（避免在UI初始化完成前调用）
+        if not hasattr(self, 'store_combo') or self.store_combo is None:
+            print("[DEBUG] store_combo 尚未初始化，跳过加载店铺列表")
+            return
+        if not hasattr(self, 'search_store_combo') or self.search_store_combo is None:
+            print("[DEBUG] search_store_combo 尚未初始化，跳过加载店铺列表")
+            return
+        
         # 清空所有店铺下拉框
         self.store_combo.clear()
         self.search_store_combo.clear()
@@ -3500,6 +4053,17 @@ class RefundManager(QMainWindow):
         """加载表格数据（根据筛选条件）"""
         print("[DEBUG] load_table_data: 开始执行")
         try:
+            # 检查必要的控件是否已初始化
+            if not hasattr(self, 'table') or self.table is None:
+                print("[DEBUG] table 尚未初始化，跳过加载表格数据")
+                return
+            if not hasattr(self, 'search_order_edit') or self.search_order_edit is None:
+                print("[DEBUG] search_order_edit 尚未初始化，跳过加载表格数据")
+                return
+            if not hasattr(self, 'search_store_combo') or self.search_store_combo is None:
+                print("[DEBUG] search_store_combo 尚未初始化，跳过加载表格数据")
+                return
+            
             if force_reload:
                 self._cached_records = None
                 self._last_search_params = None
