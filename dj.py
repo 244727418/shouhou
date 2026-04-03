@@ -53,10 +53,13 @@ import shutil  # 用于文件操作
 import tempfile  # 用于创建临时目录
 import threading  # 用于后台下载
 
+# 导入帮助对话框模块
+from help_dialog import HelpDialog
+
 # ==================== 软件版本配置 ====================
 # 【重要】每次发布新版本时，必须修改这里的版本号！
 # 版本号格式：主版本.次版本.修订号
-CURRENT_VERSION = "1.4"
+CURRENT_VERSION = "1.5"
 
 # GitHub仓库配置
 # 【重要】请修改为你的GitHub用户名和仓库名
@@ -74,13 +77,32 @@ UPDATE_CHECK_DELAY = 3
 
 def get_resource_path(relative_path):
     """获取资源文件的绝对路径，支持打包后的exe文件"""
+    # 方法1：首先尝试PyInstaller的临时目录
     try:
         # PyInstaller创建临时文件夹，将路径存储在_MEIPASS中
         base_path = sys._MEIPASS
+        full_path = os.path.join(base_path, relative_path)
+        if os.path.exists(full_path):
+            return full_path
     except Exception:
-        base_path = os.path.abspath(".")
+        pass
     
-    return os.path.join(base_path, relative_path)
+    # 方法2：尝试当前目录
+    base_path = os.path.abspath(".")
+    full_path = os.path.join(base_path, relative_path)
+    if os.path.exists(full_path):
+        return full_path
+    
+    # 方法3：尝试exe文件所在目录（打包后）
+    if getattr(sys, 'frozen', False):
+        # 如果是打包后的exe文件
+        base_path = os.path.dirname(sys.executable)
+        full_path = os.path.join(base_path, relative_path)
+        if os.path.exists(full_path):
+            return full_path
+    
+    # 方法4：如果以上都失败，返回相对路径（让PyQt5尝试处理）
+    return relative_path
 
 
 
@@ -3654,6 +3676,11 @@ class RefundManager(QMainWindow):
         # 创建帮助菜单
         help_menu = QMenu("帮助", self)
         
+        # 连接检测菜单项
+        connection_check_action = QAction("连接检测", self)
+        connection_check_action.triggered.connect(self.show_help_dialog)
+        help_menu.addAction(connection_check_action)
+        
         # 检查更新菜单项
         check_update_action = QAction("检查更新", self)
         check_update_action.triggered.connect(self.manual_check_update)
@@ -3708,6 +3735,14 @@ class RefundManager(QMainWindow):
             "检查更新",
             f"当前已是最新版本 (v{CURRENT_VERSION})"
         )
+    
+    def show_help_dialog(self):
+        """显示帮助与连接检测对话框"""
+        try:
+            help_dialog = HelpDialog(self, GITHUB_API_URL)
+            help_dialog.exec_()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"无法打开帮助对话框: {e}")
     
     def show_about_dialog(self):
         """显示关于对话框"""

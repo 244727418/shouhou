@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 
 def main():
-    print("=== 售后登记表软件打包工具 v1.4 ===")
+    print("=== 售后登记表软件打包工具 v1.4.1 ===")
     print("开始打包...")
     
     # 创建dist目录（如果不存在）
@@ -23,7 +23,7 @@ def main():
     # 打包命令
     cmd = [
         "pyinstaller",
-        "--name=售后登记表_v1.4",
+        "--name=售后登记表_v1.4.1",
         "--onefile",  # 打包成单个exe文件
         "--windowed",  # 不显示控制台窗口
         "--icon=NONE",  # 不使用图标
