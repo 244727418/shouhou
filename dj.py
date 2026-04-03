@@ -36,10 +36,10 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QMessageBox, QFileDialog, QInputDialog, QHeaderView, QAbstractItemView,
     QFrame, QStatusBar, QDateEdit, QDialog, QDialogButtonBox, QFormLayout, QShortcut, QAction, QMenu,
     QColorDialog, QListWidget, QListWidgetItem, QItemDelegate, QFontDialog, QSpinBox, QSlider, QSplitter,
-    QSizePolicy, QProgressDialog, QTextEdit
+    QSizePolicy, QProgressDialog, QTextEdit, QSystemTrayIcon
 )
 from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation, QObject, Q_ARG
-from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette
+from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette, QIcon
 from PyQt5.uic import loadUi
 
 import openpyxl
@@ -2019,6 +2019,9 @@ class RefundManager(QMainWindow):
         self.load_table_data()
         self.setup_shortcuts()
         
+        # ==================== 系统托盘功能 ====================
+        self._init_system_tray()
+        
         # ==================== 自动更新检查 ====================
         # 程序启动后延迟检查更新
         if ENABLE_AUTO_UPDATE:
@@ -2667,6 +2670,79 @@ class RefundManager(QMainWindow):
             """
         )
 
+    def _init_system_tray(self):
+        """初始化系统托盘图标"""
+        # 检查系统是否支持托盘
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            QMessageBox.critical(self, "系统托盘", "您的系统不支持系统托盘功能")
+            return
+        
+        # 创建托盘图标
+        self.tray_icon = QSystemTrayIcon(self)
+        
+        # 使用苹果emoji作为托盘图标
+        # 创建一个包含emoji的图像
+        from PyQt5.QtGui import QPixmap, QPainter, QFont
+        
+        # 创建64x64像素的图像
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.transparent)  # 透明背景
+        
+        # 在图像上绘制苹果emoji
+        painter = QPainter(pixmap)
+        painter.setFont(QFont("Segoe UI Emoji", 48))  # Windows系统使用Segoe UI Emoji字体
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "🍎")
+        painter.end()
+        
+        # 设置图标
+        self.tray_icon.setIcon(QIcon(pixmap))
+        
+        # 设置托盘提示文本
+        self.tray_icon.setToolTip(f"电商售后品质退款管理工具 v{CURRENT_VERSION}")
+        
+        # 创建托盘菜单
+        tray_menu = QMenu()
+        
+        # 显示主窗口
+        show_action = QAction("显示主窗口", self)
+        show_action.triggered.connect(self.showNormal)
+        tray_menu.addAction(show_action)
+        
+        tray_menu.addSeparator()
+        
+        # 退出程序
+        quit_action = QAction("退出", self)
+        quit_action.triggered.connect(self._quit_application)
+        tray_menu.addAction(quit_action)
+        
+        # 设置托盘菜单
+        self.tray_icon.setContextMenu(tray_menu)
+        
+        # 连接托盘图标激活信号（单击/双击）
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        
+        # 显示托盘图标
+        self.tray_icon.show()
+        
+        print("[DEBUG] 系统托盘图标已初始化")
+    
+    def _on_tray_activated(self, reason):
+        """托盘图标被激活时的处理"""
+        # reason 1 = 单击, 2 = 双击, 3 = 右键点击
+        if reason == QSystemTrayIcon.DoubleClick or reason == QSystemTrayIcon.Trigger:
+            # 双击或单击显示主窗口
+            self.showNormal()
+            self.activateWindow()
+    
+    def _quit_application(self):
+        """完全退出应用程序"""
+        # 隐藏托盘图标
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.hide()
+        
+        # 退出应用程序
+        QApplication.instance().quit()
+    
     def _apply_dopamine_styles(self):
         """应用多巴胺配色方案到信息录入区"""
         try:
@@ -2869,9 +2945,34 @@ class RefundManager(QMainWindow):
         self.bottom_splitter.setSizes([160, 1240]) # 下部水平分割器固定比例：左110(+10)，右1290(-10)
 
     def closeEvent(self, event):
-        """窗口关闭事件，保存设置"""
+        """窗口关闭事件，保存设置并实现最小化到托盘"""
+        # 先保存窗口设置
         self.save_window_settings()
-        event.accept()
+        
+        # 检查是否支持系统托盘，如果支持则最小化到托盘而不是关闭
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            # 隐藏主窗口
+            self.hide()
+            
+            # 显示气泡提示（仅第一次关闭时显示）
+            if not hasattr(self, '_tray_notification_shown'):
+                self.tray_icon.showMessage(
+                    "售后管理工具",
+                    "程序已最小化到系统托盘，双击图标可恢复窗口",
+                    QSystemTrayIcon.Information,
+                    3000  # 显示3秒
+                )
+                self._tray_notification_shown = True
+            
+            # 忽略关闭事件，不退出程序
+            event.ignore()
+            print("[DEBUG] 窗口已最小化到系统托盘")
+        else:
+            # 如果没有托盘图标，正常关闭
+            print("[DEBUG] 没有托盘图标，正常关闭程序")
+            # 关闭数据库连接
+            self.db.close()
+            event.accept()
 
     def show_bubble_message(self, message):
         """显示淡入淡出气泡消息"""
@@ -7152,11 +7253,6 @@ class RefundManager(QMainWindow):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
         QMessageBox.information(self, "成功", "调试信息已复制到剪贴板")
-
-    def closeEvent(self, event):
-        """关闭窗口时关闭数据库连接"""
-        self.db.close()
-        event.accept()
 
 # ---------------------------- 高级主题设置对话框 --------------------------------
 # ---------------------------- AI分析功能相关类 ----------------------------
