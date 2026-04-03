@@ -498,6 +498,703 @@ class BubbleMessage(QWidget):
 
 # ==================== 自动更新模块 ====================
 
+class RejectSelectionDialog(QDialog):
+    """
+    驳回选择对话框
+    用于选择第一轮驳回、第二轮驳回或驳回成功
+    """
+    def __init__(self, current_round=0, parent=None):
+        super().__init__(parent)
+        self.current_round = current_round
+        self.selected_option = None
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("驳回流程选择")
+        self.setFixedSize(380, 380)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        
+        # 标题
+        title_label = QLabel("请选择驳回流程")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 说明文字
+        desc_label = QLabel("驳回后将开始30分钟倒计时，\n时间到后会提醒您继续操作。")
+        desc_label.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        desc_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc_label)
+        
+        layout.addSpacing(20)
+        
+        # 第一轮驳回按钮
+        self.first_round_btn = QPushButton("第一轮驳回")
+        self.first_round_btn.setMinimumHeight(18)
+        self.first_round_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        self.first_round_btn.clicked.connect(lambda: self.select_option("first"))
+        layout.addWidget(self.first_round_btn)
+        
+        # 第二轮驳回按钮
+        self.second_round_btn = QPushButton("第二轮驳回")
+        self.second_round_btn.setMinimumHeight(18)
+        self.second_round_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d68910;
+            }
+        """)
+        self.second_round_btn.clicked.connect(lambda: self.select_option("second"))
+        layout.addWidget(self.second_round_btn)
+        
+        # 驳回成功按钮
+        self.success_btn = QPushButton("驳回成功")
+        self.success_btn.setMinimumHeight(18)
+        self.success_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        self.success_btn.clicked.connect(lambda: self.select_option("success"))
+        layout.addWidget(self.success_btn)
+        
+        # 根据当前轮次禁用按钮
+        if self.current_round == 0:
+            # 还没开始，禁用第二轮和成功
+            self.second_round_btn.setEnabled(False)
+            self.success_btn.setEnabled(False)
+        elif self.current_round == 1:
+            # 第一轮进行中，禁用第一轮
+            self.first_round_btn.setEnabled(False)
+        elif self.current_round == 2:
+            # 第二轮进行中，禁用第一轮和第二轮
+            self.first_round_btn.setEnabled(False)
+            self.second_round_btn.setEnabled(False)
+        
+        # 取消按钮
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        layout.addWidget(cancel_btn)
+        
+        self.setLayout(layout)
+    
+    def select_option(self, option):
+        """选择选项"""
+        self.selected_option = option
+        self.accept()
+    
+    def get_selected_option(self):
+        """获取选择的选项"""
+        return self.selected_option
+
+
+class RejectSkipDialog(QDialog):
+    """
+    跳过等待确认对话框
+    """
+    def __init__(self, order_no, current_round, parent=None):
+        super().__init__(parent)
+        self.order_no = order_no
+        self.current_round = current_round
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("跳过等待")
+        self.setFixedSize(350, 200)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("跳过等待确认")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e74c3c;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 说明文字
+        round_text = "第一轮" if self.current_round == 1 else "第二轮"
+        desc_label = QLabel(f"订单号: {self.order_no}\n当前处于{round_text}驳回等待中\n\n是否跳过等待时间？")
+        desc_label.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        desc_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc_label)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        
+        skip_btn = QPushButton("跳过等待")
+        skip_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        skip_btn.clicked.connect(self.accept)
+        
+        cancel_btn = QPushButton("继续等待")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(skip_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+
+class RejectSuccessDialog(QDialog):
+    """
+    驳回成功设置对话框
+    """
+    def __init__(self, order_no, store_name, parent=None):
+        super().__init__(parent)
+        self.order_no = order_no
+        self.store_name = store_name
+        self.remind_48h = False
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("驳回成功")
+        self.setFixedSize(400, 250)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QCheckBox {
+                font-size: 14px;
+                color: #2c3e50;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("🎉 驳回成功")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #27ae60;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 信息
+        info_label = QLabel(f"店铺: {self.store_name}\n订单号: {self.order_no}")
+        info_label.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        info_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        # 48小时提醒复选框
+        self.remind_checkbox = QCheckBox("48小时后提醒我")
+        self.remind_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 14px;
+                color: #2c3e50;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+            }
+        """)
+        self.remind_checkbox.setChecked(True)
+        layout.addWidget(self.remind_checkbox)
+        
+        # 说明
+        desc_label = QLabel("勾选后，系统将在48小时后弹出提醒")
+        desc_label.setStyleSheet("color: #95a5a6; font-size: 11px;")
+        desc_label.setIndent(25)
+        layout.addWidget(desc_label)
+        
+        layout.addSpacing(10)
+        
+        # 确定按钮
+        confirm_btn = QPushButton("确定")
+        confirm_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 12px 30px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        confirm_btn.clicked.connect(self.on_confirm)
+        layout.addWidget(confirm_btn, alignment=Qt.AlignCenter)
+        
+        self.setLayout(layout)
+    
+    def on_confirm(self):
+        """确认按钮点击"""
+        self.remind_48h = self.remind_checkbox.isChecked()
+        self.accept()
+    
+    def should_remind_48h(self):
+        """是否设置48小时提醒"""
+        return self.remind_48h
+
+
+class RejectCountdownFinishedDialog(QDialog):
+    """
+    驳回倒计时结束对话框
+    显示订单信息（可复制），并提供继续下一轮驳回的选项
+    """
+    def __init__(self, order_no, store_name, round_text, parent=None):
+        super().__init__(parent)
+        self.order_no = order_no
+        self.store_name = store_name
+        self.round_text = round_text
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("⏰ 驳回时间到")
+        self.setFixedSize(420, 300)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QLineEdit {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 13px;
+                selection-background-color: #3498db;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel(f"⏰ {self.round_text}驳回时间到！")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #e74c3c;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 店铺信息
+        store_label = QLabel(f"店铺: {self.store_name}")
+        store_label.setStyleSheet("color: #7f8c8d; font-size: 13px;")
+        store_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(store_label)
+        
+        # 订单号（可复制）
+        order_label = QLabel("订单号（可复制）:")
+        order_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        layout.addWidget(order_label)
+        
+        self.order_edit = QLineEdit(self.order_no)
+        self.order_edit.setReadOnly(True)
+        self.order_edit.setAlignment(Qt.AlignCenter)
+        self.order_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                font-weight: bold;
+                padding: 10px;
+            }
+        """)
+        # 自动选中所有文本，方便复制
+        self.order_edit.selectAll()
+        layout.addWidget(self.order_edit)
+        
+        layout.addSpacing(10)
+        
+        # 按钮区域
+        btn_layout = QHBoxLayout()
+        
+        # 稍后处理按钮
+        later_btn = QPushButton("稍后处理")
+        later_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        later_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(later_btn)
+        
+        btn_layout.addStretch()
+        
+        # 继续按钮（根据轮次显示不同文字）
+        if self.round_text == "第一轮":
+            next_btn_text = "开始第二轮驳回"
+            next_btn_color = "#3498db"
+            next_btn_hover = "#2980b9"
+        else:
+            next_btn_text = "驳回成功"
+            next_btn_color = "#27ae60"
+            next_btn_hover = "#229954"
+        
+        next_btn = QPushButton(next_btn_text)
+        next_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {next_btn_color};
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {next_btn_hover};
+            }}
+        """)
+        next_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(next_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+
+
+class Reminder48hDialog(QDialog):
+    """
+    48小时提醒对话框
+    显示订单信息（可复制）
+    """
+    def __init__(self, order_no, store_name, parent=None):
+        super().__init__(parent)
+        self.order_no = order_no
+        self.store_name = store_name
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("⏰ 48小时提醒")
+        self.setFixedSize(400, 280)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 30px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QLineEdit {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 13px;
+                selection-background-color: #3498db;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("⏰ 48小时提醒")
+        title_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #e74c3c;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 说明文字
+        desc_label = QLabel("该订单驳回成功已满48小时，请注意跟进！")
+        desc_label.setStyleSheet("color: #7f8c8d; font-size: 13px;")
+        desc_label.setAlignment(Qt.AlignCenter)
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+        
+        layout.addSpacing(10)
+        
+        # 店铺信息
+        store_layout = QHBoxLayout()
+        store_label_title = QLabel("店铺:")
+        store_label_title.setStyleSheet("font-weight: bold;")
+        store_label_value = QLabel(self.store_name)
+        store_label_value.setStyleSheet("color: #2c3e50;")
+        store_layout.addWidget(store_label_title)
+        store_layout.addWidget(store_label_value)
+        store_layout.addStretch()
+        layout.addLayout(store_layout)
+        
+        # 订单号（可复制）
+        order_label = QLabel("订单号（可复制）:")
+        order_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        layout.addWidget(order_label)
+        
+        self.order_edit = QLineEdit(self.order_no)
+        self.order_edit.setReadOnly(True)
+        self.order_edit.setAlignment(Qt.AlignCenter)
+        self.order_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                font-weight: bold;
+                padding: 10px;
+                font-size: 14px;
+            }
+        """)
+        # 自动选中所有文本，方便复制
+        self.order_edit.selectAll()
+        layout.addWidget(self.order_edit)
+        
+        layout.addSpacing(15)
+        
+        # 确定按钮
+        confirm_btn = QPushButton("确定")
+        confirm_btn.clicked.connect(self.accept)
+        layout.addWidget(confirm_btn, alignment=Qt.AlignCenter)
+        
+        self.setLayout(layout)
+
+
+class RejectSuccessActionsDialog(QDialog):
+    """
+    驳回成功后操作对话框
+    提供平台介入退款等选项
+    """
+    def __init__(self, order_no, store_name, parent=None):
+        super().__init__(parent)
+        self.order_no = order_no
+        self.store_name = store_name
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("驳回成功 - 后续操作")
+        self.setFixedSize(400, 250)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f6fa;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QPushButton {
+                border: none;
+                border-radius: 5px;
+                padding: 12px 25px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("✅ 驳回成功")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #27ae60;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 信息
+        info_label = QLabel(f"店铺: {self.store_name}\n订单号: {self.order_no}")
+        info_label.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        info_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        layout.addSpacing(10)
+        
+        # 说明
+        desc_label = QLabel("如果平台介入退款，请点击下方按钮标记")
+        desc_label.setStyleSheet("color: #e74c3c; font-size: 12px;")
+        desc_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc_label)
+        
+        layout.addSpacing(10)
+        
+        # 按钮区域
+        btn_layout = QHBoxLayout()
+        
+        # 关闭按钮
+        close_btn = QPushButton("关闭")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        close_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(close_btn)
+        
+        btn_layout.addStretch()
+        
+        # 平台介入退款按钮
+        platform_btn = QPushButton("平台介入退款")
+        platform_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        platform_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(platform_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+
+
 class UpdateDialog(QDialog):
     """
     更新对话框
@@ -796,6 +1493,266 @@ del "%~f0"
             self.later_btn.setEnabled(True)
 
 
+# ==================== 驳回流程管理类 ====================
+
+class RejectProcessManager(QObject):
+    """
+    驳回流程管理器
+    管理订单的驳回流程：第一轮驳回、第二轮驳回、驳回成功
+    """
+    # 信号定义
+    countdown_updated = pyqtSignal(str, int, str)  # 订单号, 剩余秒数, 当前轮次
+    countdown_finished = pyqtSignal(str, str)  # 订单号, 当前轮次
+    reminder_48h_triggered = pyqtSignal(str, str)  # 订单号, 店铺名称
+    
+    def __init__(self, db=None):
+        super().__init__()
+        # 数据库引用
+        self.db = db
+        # 存储进行中的驳回流程
+        # 格式: {order_no: {'round': 1/2, 'end_time': datetime, 'timer': QTimer, 'store_name': str}}
+        self.active_processes = {}
+        # 存储48小时提醒
+        # 格式: {order_no: {'end_time': datetime, 'timer': QTimer, 'store_name': str}}
+        self.reminder_48h = {}
+    
+    def start_first_round(self, order_no, store_name):
+        """开始第一轮驳回"""
+        # 如果已有流程，先停止
+        if order_no in self.active_processes:
+            self.stop_process(order_no)
+        
+        # 创建倒计时，30分钟 = 1800秒
+        end_time = datetime.now() + timedelta(seconds=1800)
+        timer = QTimer()
+        timer.timeout.connect(lambda: self._update_countdown(order_no))
+        timer.start(1000)  # 每秒更新一次
+        
+        self.active_processes[order_no] = {
+            'round': 1,
+            'end_time': end_time,
+            'timer': timer,
+            'store_name': store_name,
+            'total_seconds': 1800
+        }
+        
+        # 保存到数据库
+        if self.db:
+            self.db.save_reject_countdown(order_no, store_name, 1, end_time)
+        
+        return True
+    
+    def start_second_round(self, order_no, store_name):
+        """开始第二轮驳回"""
+        # 停止第一轮
+        if order_no in self.active_processes:
+            self.stop_process(order_no)
+        
+        # 创建倒计时，30分钟 = 1800秒
+        end_time = datetime.now() + timedelta(seconds=1800)
+        timer = QTimer()
+        timer.timeout.connect(lambda: self._update_countdown(order_no))
+        timer.start(1000)
+        
+        self.active_processes[order_no] = {
+            'round': 2,
+            'end_time': end_time,
+            'timer': timer,
+            'store_name': store_name,
+            'total_seconds': 1800
+        }
+        
+        # 保存到数据库
+        if self.db:
+            self.db.save_reject_countdown(order_no, store_name, 2, end_time)
+        
+        return True
+    
+    def skip_wait(self, order_no):
+        """跳过当前等待"""
+        if order_no in self.active_processes:
+            process = self.active_processes[order_no]
+            process['end_time'] = datetime.now()  # 将结束时间设为现在
+            self._update_countdown(order_no)  # 立即更新一次
+            return process['round']
+        return None
+    
+    def stop_process(self, order_no):
+        """停止指定订单的驳回流程"""
+        if order_no in self.active_processes:
+            process = self.active_processes[order_no]
+            if process['timer']:
+                process['timer'].stop()
+            del self.active_processes[order_no]
+            
+            # 从数据库删除
+            if self.db:
+                self.db.delete_reject_countdown(order_no)
+    
+    def _update_countdown(self, order_no):
+        """更新倒计时"""
+        if order_no not in self.active_processes:
+            return
+        
+        process = self.active_processes[order_no]
+        now = datetime.now()
+        remaining = (process['end_time'] - now).total_seconds()
+        
+        if remaining <= 0:
+            # 倒计时结束
+            round_num = process['round']
+            store_name = process['store_name']
+            self.stop_process(order_no)
+            self.countdown_finished.emit(order_no, f"第{round_num}轮")
+        else:
+            # 发射更新信号
+            self.countdown_updated.emit(order_no, int(remaining), f"第{process['round']}轮")
+    
+    def get_remaining_time(self, order_no):
+        """获取剩余时间（秒）"""
+        if order_no not in self.active_processes:
+            return None
+        
+        process = self.active_processes[order_no]
+        remaining = (process['end_time'] - datetime.now()).total_seconds()
+        return max(0, int(remaining))
+    
+    def get_process_info(self, order_no):
+        """获取流程信息"""
+        if order_no not in self.active_processes:
+            return None
+        
+        process = self.active_processes[order_no]
+        remaining = self.get_remaining_time(order_no)
+        return {
+            'round': process['round'],
+            'remaining': remaining,
+            'store_name': process['store_name']
+        }
+    
+    def set_48h_reminder(self, order_no, store_name):
+        """设置48小时提醒"""
+        # 如果已有提醒，先停止
+        if order_no in self.reminder_48h:
+            self.stop_48h_reminder(order_no)
+        
+        # 创建48小时倒计时
+        end_time = datetime.now() + timedelta(hours=48)
+        timer = QTimer()
+        timer.setSingleShot(True)  # 只执行一次
+        timer.timeout.connect(lambda: self._on_48h_reminder(order_no))
+        timer.start(48 * 60 * 60 * 1000)  # 48小时 = 172800000毫秒
+        
+        self.reminder_48h[order_no] = {
+            'end_time': end_time,
+            'timer': timer,
+            'store_name': store_name
+        }
+        
+        print(f"[DEBUG] 订单 {order_no} 48小时提醒已设置，结束时间: {end_time}")
+        return True
+    
+    def stop_48h_reminder(self, order_no):
+        """停止48小时提醒"""
+        if order_no in self.reminder_48h:
+            reminder = self.reminder_48h[order_no]
+            if reminder['timer']:
+                reminder['timer'].stop()
+            del self.reminder_48h[order_no]
+            print(f"[DEBUG] 订单 {order_no} 48小时提醒已取消")
+    
+    def _on_48h_reminder(self, order_no):
+        """48小时提醒触发"""
+        if order_no in self.reminder_48h:
+            reminder = self.reminder_48h[order_no]
+            store_name = reminder['store_name']
+            del self.reminder_48h[order_no]
+            
+            # 发射信号
+            self.reminder_48h_triggered.emit(order_no, store_name)
+            print(f"[DEBUG] 订单 {order_no} 48小时提醒触发")
+    
+    def get_48h_reminder_remaining(self, order_no):
+        """获取48小时提醒的剩余时间（秒）"""
+        if order_no not in self.reminder_48h:
+            return None
+        
+        reminder = self.reminder_48h[order_no]
+        remaining = (reminder['end_time'] - datetime.now()).total_seconds()
+        return max(0, int(remaining))
+    
+    def has_48h_reminder(self, order_no):
+        """检查是否有48小时提醒"""
+        return order_no in self.reminder_48h
+    
+    def get_48h_reminder_info(self, order_no):
+        """获取48小时提醒的详细信息"""
+        if order_no not in self.reminder_48h:
+            return None
+        
+        reminder = self.reminder_48h[order_no]
+        remaining_seconds = (reminder['end_time'] - datetime.now()).total_seconds()
+        remaining_seconds = max(0, int(remaining_seconds))
+        
+        # 计算剩余小时数（向上取整）
+        remaining_hours = (remaining_seconds + 3599) // 3600  # 加3599是为了向上取整
+        
+        return {
+            'end_time': reminder['end_time'],
+            'remaining_seconds': remaining_seconds,
+            'remaining_hours': remaining_hours,
+            'store_name': reminder['store_name']
+        }
+            
+    def clear_all(self):
+        """清除所有流程"""
+        # 停止所有活动流程
+        for order_no in list(self.active_processes.keys()):
+            self.stop_process(order_no)
+        
+        # 停止所有48小时提醒
+        for order_no in list(self.reminder_48h.keys()):
+            self.stop_48h_reminder(order_no)
+
+    def restore_countdowns_from_db(self):
+        """从数据库恢复倒计时状态（软件启动时调用）"""
+        if not self.db:
+            return
+        
+        # 获取所有活动的倒计时
+        active_countdowns = self.db.get_all_active_reject_countdowns()
+        
+        for countdown in active_countdowns:
+            order_no = countdown['order_no']
+            store_name = countdown['store_name']
+            current_round = countdown['current_round']
+            end_time = countdown['end_time']
+            
+            # 计算剩余秒数
+            remaining_seconds = (end_time - datetime.now()).total_seconds()
+            
+            if remaining_seconds <= 0:
+                # 已经过期，删除记录
+                self.db.delete_reject_countdown(order_no)
+                continue
+            
+            # 创建倒计时
+            timer = QTimer()
+            timer.timeout.connect(lambda on=order_no: self._update_countdown(on))
+            timer.start(1000)
+            
+            self.active_processes[order_no] = {
+                'round': current_round,
+                'end_time': end_time,
+                'timer': timer,
+                'store_name': store_name,
+                'total_seconds': int(remaining_seconds)
+            }
+            
+            # 发射信号更新UI
+            self.countdown_updated.emit(order_no, int(remaining_seconds), f"第{current_round}轮")
+
+
 class UpdateChecker(QObject):
     """
     更新检查器
@@ -1028,6 +1985,20 @@ class Database:
             )
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_record_date ON refund_records (record_date)')
+        
+        # 创建驳回倒计时状态表（用于软件重启后恢复倒计时）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reject_countdown (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_no TEXT UNIQUE NOT NULL,
+                store_name TEXT NOT NULL,
+                current_round INTEGER NOT NULL,  -- 1=第一轮, 2=第二轮
+                end_time TEXT NOT NULL,  -- 倒计时结束时间 ISO格式
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reject_countdown_order ON reject_countdown (order_no)')
+        
         self.conn.commit()
     
     def _add_missing_columns(self):
@@ -1485,8 +2456,16 @@ class Database:
                 query += ' AND r.reject = 0'
         
         if reject_result != '全部':
-            query += ' AND r.reject_result = ?'
-            params.append(reject_result)
+            if reject_result == '驳回中':
+                # 驳回中：驳回为"是"，且结果为空、NULL，或不等于"驳回成功"也不等于"驳回失败"
+                query += ''' AND r.reject = 1 AND (
+                    r.reject_result IS NULL 
+                    OR r.reject_result = '' 
+                    OR (r.reject_result != '驳回成功' AND r.reject_result != '驳回失败')
+                )'''
+            else:
+                query += ' AND r.reject_result = ?'
+                params.append(reject_result)
         
         if start_date:
             query += ' AND r.record_date >= ?'
@@ -1658,6 +2637,68 @@ class Database:
                 'record_date': row[10], 'store_name': row[11], 'store_id': row[12]
             }
         return None
+
+    # ==================== 驳回倒计时状态管理 ====================
+
+    def save_reject_countdown(self, order_no, store_name, current_round, end_time):
+        """保存驳回倒计时状态到数据库"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO reject_countdown (order_no, store_name, current_round, end_time)
+            VALUES (?, ?, ?, ?)
+        ''', (order_no, store_name, current_round, end_time.isoformat()))
+        self.conn.commit()
+
+    def get_reject_countdown(self, order_no):
+        """获取指定订单的驳回倒计时状态"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT order_no, store_name, current_round, end_time
+            FROM reject_countdown
+            WHERE order_no = ?
+        ''', (order_no,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'order_no': row[0],
+                'store_name': row[1],
+                'current_round': row[2],
+                'end_time': datetime.fromisoformat(row[3])
+            }
+        return None
+
+    def get_all_active_reject_countdowns(self):
+        """获取所有活动的驳回倒计时（未过期的）"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute('''
+            SELECT order_no, store_name, current_round, end_time
+            FROM reject_countdown
+            WHERE end_time > ?
+        ''', (now,))
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            result.append({
+                'order_no': row[0],
+                'store_name': row[1],
+                'current_round': row[2],
+                'end_time': datetime.fromisoformat(row[3])
+            })
+        return result
+
+    def delete_reject_countdown(self, order_no):
+        """删除指定订单的驳回倒计时状态"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM reject_countdown WHERE order_no = ?', (order_no,))
+        self.conn.commit()
+
+    def clear_expired_reject_countdowns(self):
+        """清理已过期的驳回倒计时记录"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute('DELETE FROM reject_countdown WHERE end_time < ?', (now,))
+        self.conn.commit()
 
     def search_records(self, order_no='', reason='全部', cancel='全部', compensate='全部',
                        reject='全部', reject_result='全部', start_date=None, end_date=None, store_name='全部'):
@@ -2028,6 +3069,18 @@ class RefundManager(QMainWindow):
             self.update_checker = UpdateChecker()
             self.update_checker.update_available.connect(self.show_update_dialog)
             QTimer.singleShot(UPDATE_CHECK_DELAY * 1000, self.check_for_updates)
+        
+        # ==================== 驳回流程管理 ====================
+        self.reject_manager = RejectProcessManager(self.db)
+        self.reject_manager.countdown_finished.connect(self.on_reject_countdown_finished)
+        self.reject_manager.countdown_updated.connect(self.on_reject_countdown_updated)
+        self.reject_manager.reminder_48h_triggered.connect(self.show_48h_reminder)
+        
+        # 从数据库恢复倒计时状态（软件重启后）
+        self.reject_manager.restore_countdowns_from_db()
+        
+        # 更新表格显示恢复的倒计时
+        self.restore_reject_display_from_db()
     
     def check_for_updates(self):
         """检查更新"""
@@ -2496,7 +3549,7 @@ class RefundManager(QMainWindow):
         self.search_reject_combo.addItems(["全部", "是", "否"])
         self.search_reject_combo.currentTextChanged.connect(self.on_search_changed)
         
-        self.search_reject_result_combo.addItems(["全部", "成功", "失败"])
+        self.search_reject_result_combo.addItems(["全部", "驳回成功", "驳回失败", "驳回中"])
         self.search_reject_result_combo.currentTextChanged.connect(self.on_search_changed)
         
         # 连接按钮信号
@@ -2874,7 +3927,7 @@ class RefundManager(QMainWindow):
             
         # 设置驳回结果选项
         if self.reject_result_combo:
-            self.reject_result_combo.addItems(["成功", "失败"])
+            self.reject_result_combo.addItems(["驳回成功", "驳回失败"])
             
         # 设置日期为今天
         if self.record_date_edit:
@@ -3175,7 +4228,7 @@ class RefundManager(QMainWindow):
                 total_refund += record['comp_amount']
             
             # 退款金额计算：只计算未撤销且未驳回成功的订单的退款金额
-            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "成功"):  # 未撤销且未驳回成功
+            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):  # 未撤销且未驳回成功
                 total_refund += record['refund_amount']
         
         return max(0.0, total_refund_budget - total_refund)
@@ -3237,7 +4290,7 @@ class RefundManager(QMainWindow):
                 today_refund += record['comp_amount']
             
             # 退款金额计算：只计算未撤销且未驳回成功的订单的退款金额
-            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "成功"):  # 未撤销且未驳回成功
+            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):  # 未撤销且未驳回成功
                 today_refund += record['refund_amount']
         
         return today_refund
@@ -3280,7 +4333,7 @@ class RefundManager(QMainWindow):
         for record in quality_refund_orders:
             if record['cancel']:  # 已撤销
                 actual_quality_count -= 1
-            elif record.get('reject') and record.get('reject_result') == "成功":  # 驳回成功
+            elif record.get('reject') and record.get('reject_result') == "驳回成功":  # 驳回成功
                 actual_quality_count -= 1
         
         # 修复：实际计入品质退款率应该使用与顾客申请相同的分母（total_orders）
@@ -3317,7 +4370,7 @@ class RefundManager(QMainWindow):
                 total_refund += record['comp_amount']
             
             # 退款金额计算：只计算未撤销且未驳回成功的订单的退款金额
-            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "成功"):  # 未撤销且未驳回成功
+            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):  # 未撤销且未驳回成功
                 total_refund += record['refund_amount']
         
         # 计算退款金额占比：退款金额 ÷ (用户设置的日销售额 × 筛选天数)
@@ -3397,7 +4450,7 @@ class RefundManager(QMainWindow):
                 other_refund_count += 1
             
             # 计算售后金额（只计算未撤销且未驳回成功的订单）
-            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "成功"):
+            if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):
                 # 计算该订单的售后金额（退款金额 + 打款补偿金额）
                 order_after_sales_amount = record['refund_amount']
                 if record['compensate']:
@@ -4290,6 +5343,9 @@ class RefundManager(QMainWindow):
             
             self.table.cellChanged.connect(self.on_cell_changed)
             
+            # 恢复进行中的驳回流程显示
+            self._restore_reject_display_after_load()
+            
             self._update_all_statistics(records)
             
             self.update_current_chart()
@@ -4340,6 +5396,81 @@ class RefundManager(QMainWindow):
             pass
         self._search_timer.timeout.connect(update_data)
         self._search_timer.start(800)
+
+    def _restore_reject_display_after_load(self):
+        """表格加载完成后恢复进行中的驳回流程显示和48小时提醒工具提示"""
+        if not hasattr(self, 'reject_manager') or not self.reject_manager:
+            return
+        
+        # 临时断开 cellChanged 信号，避免递归
+        try:
+            self.table.cellChanged.disconnect(self.on_cell_changed)
+        except TypeError:
+            pass
+        
+        try:
+            # 遍历所有进行中的驳回流程
+            for order_no, process_info in self.reject_manager.active_processes.items():
+                # 在表格中查找该订单
+                for row in range(self.table.rowCount()):
+                    order_item = self.table.item(row, 1)  # 订单号列
+                    if order_item and order_item.text() == order_no:
+                        current_round = process_info['round']
+                        # 直接设置单元格文本，不调用 update_reject_result_display 避免递归
+                        reject_result_item = self.table.item(row, 8)  # 驳回结果列
+                        if reject_result_item:
+                            if current_round == 1:
+                                reject_result_item.setText("第一轮驳回中...")
+                                reject_result_item.setBackground(QColor("#FFF3E0"))
+                                reject_result_item.setForeground(QColor("#E65100"))
+                            elif current_round == 2:
+                                reject_result_item.setText("第二轮驳回中...")
+                                reject_result_item.setBackground(QColor("#E3F2FD"))
+                                reject_result_item.setForeground(QColor("#1565C0"))
+                        break
+            
+            # 遍历所有表格行，为"驳回成功"且设置了48小时提醒的订单添加工具提示
+            for row in range(self.table.rowCount()):
+                order_item = self.table.item(row, 1)  # 订单号列
+                if not order_item:
+                    continue
+                order_no = order_item.text()
+                
+                reject_result_item = self.table.item(row, 8)  # 驳回结果列
+                if not reject_result_item:
+                    continue
+                
+                result_text = reject_result_item.text()
+                
+                # 如果是驳回成功，检查是否有48小时提醒
+                if "驳回成功" in result_text:
+                    reminder_info = self.reject_manager.get_48h_reminder_info(order_no)
+                    if reminder_info:
+                        end_time = reminder_info['end_time']
+                        remaining_hours = reminder_info['remaining_hours']
+                        remind_time_str = end_time.strftime("%m-%d %H:%M")
+                        tooltip = (
+                            f"✅ 驳回成功\n"
+                            f"⏰ 48小时提醒剩余: 约{remaining_hours}小时\n"
+                            f"📅 提醒时间: {remind_time_str}\n"
+                            f"⚠️ 请及时检查是否被平台介入退款\n"
+                            f"💡 双击可标记平台介入退款"
+                        )
+                        reject_result_item.setToolTip(tooltip)
+                        reject_result_item.setBackground(QColor("#E8F5E9"))
+                        reject_result_item.setForeground(QColor("#2E7D32"))
+                    else:
+                        reject_result_item.setToolTip("✅ 驳回成功\n💡 双击可标记平台介入退款")
+                        reject_result_item.setBackground(QColor("#E8F5E9"))
+                        reject_result_item.setForeground(QColor("#2E7D32"))
+                elif "驳回失败" in result_text:
+                    reject_result_item.setToolTip("❌ 平台已介入退款")
+                    reject_result_item.setBackground(QColor("#FFEBEE"))
+                    reject_result_item.setForeground(QColor("#C62828"))
+                    
+        finally:
+            # 恢复 cellChanged 信号连接
+            self.table.cellChanged.connect(self.on_cell_changed)
 
     def _get_current_search_params(self):
         """获取当前搜索参数（用于缓存检查）"""
@@ -4663,9 +5794,8 @@ class RefundManager(QMainWindow):
                     self.table.editItem(item)
             elif column == 7:  # 驳回列：双击切换
                 self.toggle_status_field(row, column)
-            elif column == 8:  # 驳回结果列：条件下拉框选择
-                if self.table.item(row, 7).text() == "是":  # 只有驳回为"是"时才能选择
-                    self.show_reject_result_dropdown(row, column)
+            elif column == 8:  # 驳回结果列：双击打开驳回流程管理
+                self.on_reject_result_double_click(row, column)
             elif column == 9:  # 登记日期列：无操作
                 pass
             elif column == 10:  # 备注列：直接编辑（现在在第10列）
@@ -4782,9 +5912,23 @@ class RefundManager(QMainWindow):
                 if text.lower() in ['是', 'true', '1', 'yes', 'y', 't']:
                     item.setText("是")
                     self.update_status_field(record_id, column, "是")
+                    
+                    # 如果是驳回列从"否"变为"是"，触发驳回流程
+                    if column == 7:
+                        rec = self.db.get_record_by_id(record_id)
+                        if rec and not rec['reject']:  # 之前是"否"，现在变为"是"
+                            self.start_reject_process(record_id, rec['order_no'], rec['store_name'])
+                            
                 elif text.lower() in ['否', 'false', '0', 'no', 'n', 'f']:
                     item.setText("否")
                     self.update_status_field(record_id, column, "否")
+                    
+                    # 如果是驳回列从"是"变为"否"，停止驳回流程
+                    if column == 7:
+                        rec = self.db.get_record_by_id(record_id)
+                        if rec and rec['reject']:  # 之前是"是"，现在变为"否"
+                            self.reject_manager.stop_process(rec['order_no'])
+                            
                 else:
                     # 无效输入，恢复原值
                     rec = self.db.get_record_by_id(record_id)
@@ -4970,6 +6114,294 @@ class RefundManager(QMainWindow):
             if current_id == record_id:
                 return row
         return None
+
+    # ==================== 驳回流程管理方法 ====================
+    
+    def start_reject_process(self, record_id, order_no, store_name):
+        """开始驳回流程"""
+        # 显示驳回选择对话框
+        dialog = RejectSelectionDialog(current_round=0, parent=self)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            option = dialog.get_selected_option()
+            
+            if option == "first":
+                # 开始第一轮驳回
+                self.reject_manager.start_first_round(order_no, store_name)
+                # 更新驳回结果列显示
+                self.update_reject_result_display(order_no, "第一轮驳回中...")
+                QMessageBox.information(self, "第一轮驳回", f"订单 {order_no} 第一轮驳回已开始\n30分钟后将提醒您继续操作")
+                
+            elif option == "second":
+                # 开始第二轮驳回
+                self.reject_manager.start_second_round(order_no, store_name)
+                self.update_reject_result_display(order_no, "第二轮驳回中...")
+                QMessageBox.information(self, "第二轮驳回", f"订单 {order_no} 第二轮驳回已开始\n30分钟后将提醒您继续操作")
+                
+            elif option == "success":
+                # 驳回成功
+                self.show_reject_success_dialog(record_id, order_no, store_name)
+    
+    def update_reject_result_display(self, order_no, text):
+        """更新驳回结果列的显示文本"""
+        # 找到对应的行
+        for row in range(self.table.rowCount()):
+            order_item = self.table.item(row, 1)  # 订单号列
+            if order_item and order_item.text() == order_no:
+                # 更新驳回结果列（第8列）
+                result_item = QTableWidgetItem(text)
+                result_item.setTextAlignment(Qt.AlignCenter)
+                
+                # 根据状态设置颜色
+                if "第一轮" in text:
+                    result_item.setBackground(QColor("#FFF3E0"))  # 浅橙色
+                    result_item.setForeground(QColor("#E65100"))  # 深橙色
+                elif "第二轮" in text:
+                    result_item.setBackground(QColor("#E3F2FD"))  # 浅蓝色
+                    result_item.setForeground(QColor("#1565C0"))  # 深蓝色
+                elif "驳回成功" in text:
+                    result_item.setBackground(QColor("#E8F5E9"))  # 浅绿色
+                    result_item.setForeground(QColor("#2E7D32"))  # 深绿色
+                elif "驳回失败" in text:
+                    result_item.setBackground(QColor("#FFEBEE"))  # 浅红色
+                    result_item.setForeground(QColor("#C62828"))  # 深红色
+                
+                # 设置工具提示（鼠标悬停显示）
+                process_info = self.reject_manager.get_process_info(order_no)
+                if process_info and "驳回中" in text:
+                    remaining = process_info['remaining']
+                    minutes = remaining // 60
+                    seconds = remaining % 60
+                    tooltip = f"⏳ 剩余时间: {minutes}分{seconds}秒\n💡 双击可跳过等待"
+                    result_item.setToolTip(tooltip)
+                elif "等待操作" in text:
+                    result_item.setToolTip("⏰ 时间已到，请继续操作\n💡 双击打开选择窗口")
+                elif "驳回成功" in text:
+                    # 检查是否有48小时提醒
+                    reminder_info = self.reject_manager.get_48h_reminder_info(order_no)
+                    if reminder_info:
+                        end_time = reminder_info['end_time']
+                        remaining_hours = reminder_info['remaining_hours']
+                        # 格式化提醒时间：月-日 时:分
+                        remind_time_str = end_time.strftime("%m-%d %H:%M")
+                        result_item.setToolTip(
+                            f"✅ 驳回成功\n"
+                            f"⏰ 48小时提醒剩余: 约{remaining_hours}小时\n"
+                            f"📅 提醒时间: {remind_time_str}\n"
+                            f"⚠️ 请及时检查是否被平台介入退款\n"
+                            f"💡 双击可标记平台介入退款"
+                        )
+                    else:
+                        result_item.setToolTip("✅ 驳回成功\n💡 双击可标记平台介入退款")
+                elif "驳回失败" in text:
+                    result_item.setToolTip("❌ 平台已介入退款")
+                else:
+                    result_item.setToolTip("💡 双击开始驳回流程")
+                    
+                self.table.setItem(row, 8, result_item)
+                break
+    
+    def on_reject_countdown_finished(self, order_no, round_text):
+        """倒计时结束时的处理"""
+        # 获取订单信息
+        rec = self.db.get_record_by_order_no(order_no)
+        store_name = rec['store_name'] if rec else "未知店铺"
+        record_id = rec['id'] if rec else None
+        
+        # 使用自定义对话框，让订单号可复制
+        dialog = RejectCountdownFinishedDialog(order_no, store_name, round_text, self)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            # 用户选择继续下一轮驳回
+            if round_text == "第一轮":
+                # 开始第二轮驳回
+                self.start_reject_process(record_id, order_no, store_name)
+            elif round_text == "第二轮":
+                # 显示驳回成功对话框
+                self.show_reject_success_dialog(record_id, order_no, store_name)
+        
+        # 更新显示为"等待操作"
+        self.update_reject_result_display(order_no, f"{round_text}等待操作")
+        
+        # 刷新表格
+        self.load_table_data()
+    
+    def on_reject_countdown_updated(self, order_no, remaining_seconds, round_text):
+        """倒计时更新时的处理 - 实时更新工具提示显示剩余时间"""
+        # 找到对应的行并更新工具提示
+        for row in range(self.table.rowCount()):
+            order_item = self.table.item(row, 1)  # 订单号列
+            if order_item and order_item.text() == order_no:
+                # 获取驳回结果列的item
+                result_item = self.table.item(row, 8)
+                if result_item:
+                    # 计算分钟和秒
+                    minutes = remaining_seconds // 60
+                    seconds = remaining_seconds % 60
+                    # 更新工具提示
+                    tooltip = f"⏳ 剩余时间: {minutes}分{seconds}秒\n💡 双击可跳过等待"
+                    result_item.setToolTip(tooltip)
+                break
+    
+    def show_reject_success_dialog(self, record_id, order_no, store_name):
+        """显示驳回成功对话框"""
+        dialog = RejectSuccessDialog(order_no, store_name, parent=self)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            # 更新数据库中的驳回结果
+            rec = self.db.get_record_by_id(record_id)
+            if rec:
+                self.db.update_record(
+                    record_id, rec['store_id'], order_no, rec['reason'],
+                    rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
+                    True, "驳回成功", rec['notes'], rec['record_date']
+                )
+            
+            # 更新显示
+            self.update_reject_result_display(order_no, "驳回成功")
+            
+            # 检查是否需要设置48小时提醒
+            if dialog.should_remind_48h():
+                self.reject_manager.set_48h_reminder(order_no, store_name)
+                QMessageBox.information(
+                    self,
+                    "✅ 驳回成功",
+                    f"订单 {order_no} 驳回成功！\n\n已设置48小时后提醒。"
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "✅ 驳回成功",
+                    f"订单 {order_no} 驳回成功！"
+                )
+            
+            # 停止驳回流程
+            self.reject_manager.stop_process(order_no)
+            
+            # 刷新表格
+            self.load_table_data()
+    
+    def show_reject_success_actions_dialog(self, record_id, order_no, store_name):
+        """显示驳回成功后的操作对话框（平台介入退款等）"""
+        dialog = RejectSuccessActionsDialog(order_no, store_name, parent=self)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            # 用户选择平台介入退款（标记为驳回失败）
+            rec = self.db.get_record_by_id(record_id)
+            if rec:
+                self.db.update_record(
+                    record_id, rec['store_id'], order_no, rec['reason'],
+                    rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
+                    True, "驳回失败", rec['notes'], rec['record_date']
+                )
+            
+            # 取消48小时提醒（如果有）
+            if self.reject_manager.has_48h_reminder(order_no):
+                self.reject_manager.stop_48h_reminder(order_no)
+            
+            # 更新显示
+            self.update_reject_result_display(order_no, "驳回失败")
+            
+            QMessageBox.information(
+                self,
+                "已标记平台介入退款",
+                f"订单 {order_no} 已标记为平台介入退款（驳回失败）"
+            )
+            
+            # 刷新表格
+            self.load_table_data()
+    
+    def on_reject_result_double_click(self, row, column):
+        """双击驳回结果列的处理"""
+        if column != 8:  # 不是驳回结果列
+            return
+        
+        # 先检查驳回列的状态，如果为"否"则不执行任何操作
+        reject_item = self.table.item(row, 7)  # 驳回列
+        if not reject_item or reject_item.text() != "是":
+            # 驳回状态为"否"，不执行任何操作
+            return
+        
+        # 获取订单号
+        order_item = self.table.item(row, 1)
+        if not order_item:
+            return
+        order_no = order_item.text()
+        
+        # 获取驳回结果列的文本
+        result_item = self.table.item(row, 8)
+        result_text = result_item.text() if result_item else ""
+        
+        # 如果驳回成功，显示平台介入退款对话框
+        if "驳回成功" in result_text:
+            record_id = self.get_record_id_from_row(row)
+            rec = self.db.get_record_by_id(record_id)
+            if rec:
+                self.show_reject_success_actions_dialog(record_id, order_no, rec['store_name'])
+            return
+        
+        # 检查是否有进行中的驳回流程
+        process_info = self.reject_manager.get_process_info(order_no)
+        if not process_info:
+            # 没有进行中的流程，显示选择对话框
+            record_id = self.get_record_id_from_row(row)
+            rec = self.db.get_record_by_id(record_id)
+            if rec:
+                self.start_reject_process(record_id, order_no, rec['store_name'])
+            return
+        
+        # 有进行中的流程，显示跳过等待对话框
+        dialog = RejectSkipDialog(order_no, process_info['round'], parent=self)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            # 跳过等待
+            current_round = self.reject_manager.skip_wait(order_no)
+            
+            if current_round == 1:
+                # 第一轮结束，显示选择对话框继续第二轮
+                QMessageBox.information(self, "第一轮结束", "第一轮驳回等待已跳过")
+                record_id = self.get_record_id_from_row(row)
+                rec = self.db.get_record_by_id(record_id)
+                if rec:
+                    # 显示选择对话框，禁用第一轮按钮
+                    dialog2 = RejectSelectionDialog(current_round=1, parent=self)
+                    if dialog2.exec_() == QDialog.Accepted:
+                        option = dialog2.get_selected_option()
+                        if option == "second":
+                            self.reject_manager.start_second_round(order_no, rec['store_name'])
+                            self.update_reject_result_display(order_no, "第二轮驳回中...")
+                        elif option == "success":
+                            self.show_reject_success_dialog(record_id, order_no, rec['store_name'])
+                            
+            elif current_round == 2:
+                # 第二轮结束，显示成功对话框
+                QMessageBox.information(self, "第二轮结束", "第二轮驳回等待已跳过")
+                record_id = self.get_record_id_from_row(row)
+                rec = self.db.get_record_by_id(record_id)
+                if rec:
+                    self.show_reject_success_dialog(record_id, order_no, rec['store_name'])
+    
+    def show_48h_reminder(self, order_no, store_name):
+        """显示48小时提醒（订单号可复制）"""
+        dialog = Reminder48hDialog(order_no, store_name, self)
+        dialog.exec_()
+
+    def restore_reject_display_from_db(self):
+        """从数据库恢复驳回显示状态（软件启动时调用）"""
+        # 获取所有活动的倒计时
+        active_countdowns = self.db.get_all_active_reject_countdowns()
+        
+        for countdown in active_countdowns:
+            order_no = countdown['order_no']
+            current_round = countdown['current_round']
+            
+            # 更新表格显示
+            if current_round == 1:
+                self.update_reject_result_display(order_no, "第一轮驳回中...")
+            elif current_round == 2:
+                self.update_reject_result_display(order_no, "第二轮驳回中...")
 
     def on_item_clicked(self, item):
         """单击表格项：自动录入订单信息到输入框"""
@@ -6589,7 +8021,7 @@ class RefundManager(QMainWindow):
         """显示驳回结果列下拉框选择"""
         # 创建下拉框
         combo = QComboBox()
-        combo.addItems(["成功", "失败"])
+        combo.addItems(["驳回成功", "驳回失败"])
         
         # 设置当前值
         current_text = self.table.item(row, column).text()
