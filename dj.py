@@ -56,7 +56,7 @@ import threading  # 用于后台下载
 # ==================== 软件版本配置 ====================
 # 【重要】每次发布新版本时，必须修改这里的版本号！
 # 版本号格式：主版本.次版本.修订号
-CURRENT_VERSION = "1.3.2"
+CURRENT_VERSION = "1.4"
 
 # GitHub仓库配置
 # 【重要】请修改为你的GitHub用户名和仓库名
@@ -5503,6 +5503,17 @@ class RefundManager(QMainWindow):
             if current_store != record['store_name'] or current_order != record['order_no']:
                 return True
             
+            # 检查退款原因
+            current_reason = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
+            if current_reason != record['reason']:
+                return True
+            
+            # 检查退款金额
+            current_amount_text = self.table.item(row, 3).text() if self.table.item(row, 3) else "¥0.00"
+            current_amount = float(current_amount_text.replace('¥', '').replace(',', '')) if current_amount_text else 0.0
+            if abs(current_amount - record['refund_amount']) > 0.01:
+                return True
+            
             current_cancel = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
             current_compensate = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
             current_reject = self.table.item(row, 7).text() if self.table.item(row, 7) else ""
@@ -5514,6 +5525,27 @@ class RefundManager(QMainWindow):
             if (current_cancel != expected_cancel or 
                 current_compensate != expected_compensate or 
                 current_reject != expected_reject):
+                return True
+            
+            # 检查补偿金额
+            current_comp_amount_text = self.table.item(row, 6).text() if self.table.item(row, 6) else "¥0.00"
+            current_comp_amount = float(current_comp_amount_text.replace('¥', '').replace(',', '')) if current_comp_amount_text else 0.0
+            if abs(current_comp_amount - record['comp_amount']) > 0.01:
+                return True
+            
+            # 检查驳回结果
+            current_reject_result = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
+            if current_reject_result != record['reject_result']:
+                return True
+            
+            # 检查日期
+            current_date = self.table.item(row, 9).text() if self.table.item(row, 9) else ""
+            if current_date != record['record_date']:
+                return True
+            
+            # 检查备注
+            current_notes = self.table.item(row, 10).text() if self.table.item(row, 10) else ""
+            if current_notes != record['notes']:
                 return True
             
             return False
