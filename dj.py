@@ -4716,12 +4716,20 @@ class RefundManager(QMainWindow):
                 match_info = "字段匹配结果：\n" + "\n".join(matched_columns)
                 QMessageBox.information(self, "字段匹配", match_info)
                 
-                # 检查必要列
+                # 检查必要列：根据搜索筛选区选择动态调整
+                current_search_store = self.search_store_combo.currentText()
+                if current_search_store and current_search_store != "全部":
+                    # 选择了具体店铺，店铺名称列可选，但登记日期必填
+                    required_fields = ['订单号', '退款原因', '退款金额', '登记日期']
+                else:
+                    # 选择了"全部"，店铺名称列和登记日期都是必填
+                    required_fields = ['店铺名称', '订单号', '退款原因', '退款金额', '登记日期']
+
                 missing_required = []
-                for config in column_configs:
-                    if config['required'] and config['target'] not in column_mapping:
-                        missing_required.append(config['target'])
-                
+                for field in required_fields:
+                    if field not in column_mapping:
+                        missing_required.append(field)
+
                 if missing_required:
                     QMessageBox.critical(self, "错误", f"缺少必要字段：{', '.join(missing_required)}")
                     return
@@ -4742,22 +4750,24 @@ class RefundManager(QMainWindow):
                 sheet = workbook.sheet_by_index(0)
                 headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
                 
-                # 检查必要列：根据搜索筛选区选择动态调整，支持模糊匹配
+                # 检查必要列：根据搜索筛选区选择动态调整
                 current_search_store = self.search_store_combo.currentText()
                 if current_search_store and current_search_store != "全部":
-                    # 选择了具体店铺，店铺名称列可选
+                    # 选择了具体店铺，店铺名称列可选，但登记日期必填
                     required_config = [
                         {'target': '订单号', 'keywords': ['订单']},
                         {'target': '退款原因', 'keywords': ['退款', '原因']},
-                        {'target': '退款金额', 'keywords': ['退款', '金额']}
+                        {'target': '退款金额', 'keywords': ['退款', '金额']},
+                        {'target': '登记日期', 'keywords': ['日期', '登记']}
                     ]
                 else:
-                    # 选择了"全部"，店铺名称列为必要列
+                    # 选择了"全部"，店铺名称列和登记日期都是必填
                     required_config = [
                         {'target': '店铺名称', 'keywords': ['店铺', '名称']},
                         {'target': '订单号', 'keywords': ['订单']},
                         {'target': '退款原因', 'keywords': ['退款', '原因']},
-                        {'target': '退款金额', 'keywords': ['退款', '金额']}
+                        {'target': '退款金额', 'keywords': ['退款', '金额']},
+                        {'target': '登记日期', 'keywords': ['日期', '登记']}
                     ]
                 
                 # 检查必要列

@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 
 def main():
-    print("=== 售后登记表软件打包工具 v1.3 ===")
+    print("=== 售后登记表软件打包工具 v1.3.2 ===")
     print("开始打包...")
     
     # 创建dist目录（如果不存在）
@@ -23,7 +23,7 @@ def main():
     # 打包命令
     cmd = [
         "pyinstaller",
-        "--name=售后登记表_v1.3",
+        "--name=售后登记表_v1.3.2",
         "--onefile",  # 打包成单个exe文件
         "--windowed",  # 不显示控制台窗口
         "--icon=NONE",  # 不使用图标
@@ -64,7 +64,7 @@ def main():
             print("✅ 打包成功!")
             
             # 检查生成的exe文件
-            exe_path = os.path.join("dist", "售后登记表_v1.3.exe")
+            exe_path = os.path.join("dist", "售后登记表_v1.3.2.exe")
             if os.path.exists(exe_path):
                 file_size = os.path.getsize(exe_path) / (1024 * 1024)  # MB
                 print(f"✅ 生成的exe文件: {exe_path}")
@@ -73,12 +73,13 @@ def main():
                 
                 print("\n🎉 打包完成!")
                 print("📁 生成的文件在 'dist' 目录中:")
-                print("   - 售后登记表_v1.3.exe (单个独立程序)")
+                print("   - 售后登记表_v1.3.2.exe (单个独立程序)")
                 print("\n💡 使用说明:")
-                print("   1. 双击 '售后登记表_v1.3.exe' 运行程序")
+                print("   1. 双击 '售后登记表_v1.3.2.exe' 运行程序")
                 print("   2. 所有必需文件已内嵌在exe中，无需额外文件")
                 print("   3. 程序启动后不会显示黑色命令提示符")
                 print("   4. 这是一个真正的独立exe文件，可以单独分发")
+                print("   5. 数据文件(refund_data.db)使用用户本地文件，不打包")
                 
             else:
                 print("❌ 打包失败: 未找到生成的exe文件")
