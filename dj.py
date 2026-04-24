@@ -2071,6 +2071,8 @@ class Database:
                 reject INTEGER DEFAULT 0,  -- 是否驳回：0=否，1=是
                 reject_result TEXT DEFAULT '',  -- 驳回结果：成功、失败
                 notes TEXT DEFAULT '',  -- 备注信息
+                order_status TEXT DEFAULT '',
+                after_sale_status TEXT DEFAULT '',
                 record_date TEXT DEFAULT '',
                 FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
             )
@@ -2127,7 +2129,7 @@ class Database:
             return 0
     
     def _add_missing_columns(self):
-        """添加缺失的列到stores表"""
+        """添加缺失的列到现有表"""
         cursor = self.conn.cursor()
         
         # 检查daily_orders列是否存在
@@ -2142,6 +2144,17 @@ class Database:
         
         if 'refund_budget' not in columns:
             cursor.execute("ALTER TABLE stores ADD COLUMN refund_budget REAL DEFAULT 0.0")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='refund_records'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(refund_records)")
+            refund_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'order_status' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN order_status TEXT DEFAULT ''")
+
+            if 'after_sale_status' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN after_sale_status TEXT DEFAULT ''")
         
         # 创建全局设置表（用于存储"全部店铺"的设置）
         cursor.execute('''
@@ -2207,12 +2220,14 @@ class Database:
                     cancel INTEGER DEFAULT 0,
                     compensate INTEGER DEFAULT 0,
                     comp_amount REAL DEFAULT 0,
-                    reject INTEGER DEFAULT 0,
-                    reject_result TEXT DEFAULT '',
-                    notes TEXT DEFAULT '',
-                    record_date TEXT DEFAULT '',
-                    FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
-                )
+                reject INTEGER DEFAULT 0,
+                reject_result TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                order_status TEXT DEFAULT '',
+                after_sale_status TEXT DEFAULT '',
+                record_date TEXT DEFAULT '',
+                FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
+            )
             ''')
             print("✅ 自动修复：refund_records 表已创建")
         
@@ -2426,7 +2441,8 @@ class Database:
         """获取所有退款记录"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, r.record_date, s.store_name, r.store_id
+            SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount,
+                   r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             ORDER BY r.record_date DESC, r.id DESC
@@ -2436,7 +2452,8 @@ class Database:
             records.append({
                 'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
                 'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
-                'record_date': row[7], 'store_name': row[8], 'store_id': row[9]
+                'order_status': row[7], 'after_sale_status': row[8],
+                'record_date': row[9], 'store_name': row[10], 'store_id': row[11]
             })
         return records
 
@@ -2592,26 +2609,26 @@ class Database:
             return result[0] if isinstance(result[0], int) else int(result[0])
         return 0
 
-    def add_record(self, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date):
+    def add_record(self, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status=''):
         """添加退款记录"""
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT INTO refund_records 
-            (store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (store_id, order_no, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, record_date))
+            (store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, order_status, after_sale_status, record_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (store_id, order_no, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, record_date))
         self.conn.commit()
         return cursor.lastrowid
 
-    def update_record(self, record_id, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date):
+    def update_record(self, record_id, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status=''):
         """更新退款记录"""
         cursor = self.conn.cursor()
         cursor.execute('''
             UPDATE refund_records SET
                 store_id=?, order_no=?, reason=?, refund_amount=?,
-                cancel=?, compensate=?, comp_amount=?, reject=?, reject_result=?, notes=?, record_date=?
+                cancel=?, compensate=?, comp_amount=?, reject=?, reject_result=?, notes=?, order_status=?, after_sale_status=?, record_date=?
             WHERE id=?
-        ''', (store_id, order_no, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, record_date, record_id))
+        ''', (store_id, order_no, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, record_date, record_id))
         self.conn.commit()
 
     def update_refund_amount(self, record_id, refund_amount):
@@ -2658,6 +2675,8 @@ class Database:
             'reject': 'reject',
             'reject_result': 'reject_result',
             'notes': 'notes',
+            'order_status': 'order_status',
+            'after_sale_status': 'after_sale_status',
             'record_date': 'record_date'
         }
         
@@ -2704,7 +2723,7 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             WHERE r.id=?
@@ -2715,7 +2734,8 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
                 'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
                 'reject': bool(row[7]), 'reject_result': row[8], 'notes': row[9],
-                'record_date': row[10], 'store_name': row[11], 'store_id': row[12]
+                'order_status': row[10], 'after_sale_status': row[11],
+                'record_date': row[12], 'store_name': row[13], 'store_id': row[14]
             }
         return None
 
@@ -2730,7 +2750,7 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             WHERE r.order_no=?
@@ -2741,7 +2761,8 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
                 'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
                 'reject': bool(row[7]), 'reject_result': row[8], 'notes': row[9],
-                'record_date': row[10], 'store_name': row[11], 'store_id': row[12]
+                'order_status': row[10], 'after_sale_status': row[11],
+                'record_date': row[12], 'store_name': row[13], 'store_id': row[14]
             }
         return None
 
@@ -2813,7 +2834,7 @@ class Database:
         cursor = self.conn.cursor()
         query = '''
             SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.record_date, s.store_name
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             WHERE 1=1
@@ -2863,7 +2884,8 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
                 'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
                 'reject': bool(row[7]), 'reject_result': row[8], 'notes': row[9],
-                'record_date': row[10], 'store_name': row[11]
+                'order_status': row[10], 'after_sale_status': row[11],
+                'record_date': row[12], 'store_name': row[13]
             })
         return results
 
@@ -2873,7 +2895,7 @@ class Database:
         
         query = '''
             SELECT r.id, r.order_no, r.reason, r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.record_date, s.store_name
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             WHERE 1=1
@@ -2911,7 +2933,8 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'reason': row[2], 'refund_amount': row[3],
                 'cancel': bool(row[4]), 'compensate': bool(row[5]), 'comp_amount': row[6],
                 'reject': bool(row[7]), 'reject_result': row[8], 'notes': row[9],
-                'record_date': row[10], 'store_name': row[11]
+                'order_status': row[10], 'after_sale_status': row[11],
+                'record_date': row[12], 'store_name': row[13]
             })
         return results
 
@@ -4158,7 +4181,9 @@ class RefundManager(QMainWindow):
                     record['reject'],
                     record['reject_result'],
                     record['notes'],
-                    record['record_date']
+                    record['record_date'],
+                    record.get('order_status', ''),
+                    record.get('after_sale_status', '')
                 )
                 restored_count += 1
             except Exception as e:
@@ -5400,6 +5425,50 @@ class RefundManager(QMainWindow):
         if update_chart:
             self.update_current_chart(records)
 
+    def _sync_cached_record(self, updated_record):
+        """同步缓存中的单条记录，避免局部更新后又被旧缓存覆盖。"""
+        if not updated_record or self._cached_records is None:
+            return
+
+        for idx, record in enumerate(self._cached_records):
+            if record.get('id') == updated_record.get('id'):
+                self._cached_records[idx] = updated_record
+                return
+
+    def _refresh_statistics_incremental(self):
+        """局部编辑后只重算统计与图表，不重绘整张表。"""
+        records = self.get_filtered_records()
+        self._cached_records = records
+        self._last_search_params = self._get_current_search_params()
+        self.update_statusbar(records)
+        self.update_total_amount_display()
+        self.update_store_stats_display()
+        self.update_current_chart(records)
+
+    def _refresh_row_by_record_id(self, record_id, refresh_statistics=True):
+        """按记录ID重渲染单行，找不到行时退回整表刷新。"""
+        row = self.get_row_from_record_id(record_id)
+        record = self.db.get_record_by_id(record_id)
+        if row is None or not record:
+            self._cached_records = None
+            self._last_search_params = None
+            self.load_table_data(force_reload=True)
+            return False
+
+        try:
+            self.table.cellChanged.disconnect(self.on_cell_changed)
+        except TypeError:
+            pass
+
+        self._render_table_row(row, record)
+        self.table.cellChanged.connect(self.on_cell_changed)
+        self._restore_reject_display_after_load()
+        self._sync_cached_record(record)
+
+        if refresh_statistics:
+            self._refresh_statistics_incremental()
+        return True
+
     def add_record(self):
         """添加记录"""
         try:
@@ -5490,9 +5559,15 @@ class RefundManager(QMainWindow):
         
         notes = self.notes_edit.toPlainText().strip()
         
+        existing_record = self.db.get_record_by_id(self.current_record_id)
         record_date = self.get_current_date()
 
-        self.db.update_record(self.current_record_id, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date)
+        self.db.update_record(
+            self.current_record_id, store_id, order_no, reason, refund_amount, cancel,
+            compensate, comp_amount, reject, reject_result, notes, record_date,
+            existing_record.get('order_status', '') if existing_record else '',
+            existing_record.get('after_sale_status', '') if existing_record else ''
+        )
         self.show_tooltip("已更新", "rgba(76, 175, 80, 0.95)", 1000)  # 绿色气泡显示1秒
         
         # 不清空输入区域，保持当前记录显示
@@ -6215,8 +6290,10 @@ class RefundManager(QMainWindow):
 
     def on_cell_changed(self, row, column):
         """表格单元格编辑完成时触发"""
-        # 防止递归调用
-        self.table.cellChanged.disconnect(self.on_cell_changed)
+        try:
+            self.table.cellChanged.disconnect(self.on_cell_changed)
+        except TypeError:
+            pass
         
         try:
             item = self.table.item(row, column)
@@ -6272,11 +6349,7 @@ class RefundManager(QMainWindow):
                         QMessageBox.warning(self, "输入错误", "请输入'是'或'否'")
                 
         finally:
-            # 重新连接信号
             self.table.cellChanged.connect(self.on_cell_changed)
-            
-            # 强制刷新表格数据，更新颜色和统计信息
-            self.load_table_data()
 
     def get_record_id_from_row(self, row):
         """根据行号获取记录ID（增强错误处理）"""
@@ -6343,28 +6416,29 @@ class RefundManager(QMainWindow):
                 self.db.update_record(
                     record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                     rec['refund_amount'], new_cancel, rec['compensate'], rec['comp_amount'],
-                    rec['reject'], rec['reject_result'], rec['notes'], rec['record_date']
+                    rec['reject'], rec['reject_result'], rec['notes'], rec['record_date'],
+                    rec.get('order_status', ''), rec.get('after_sale_status', '')
                 )
             elif column == 5:  # 打款补偿列
                 new_compensate = not rec['compensate']  # 切换状态
                 self.db.update_record(
                     record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                     rec['refund_amount'], rec['cancel'], new_compensate, rec['comp_amount'],
-                    rec['reject'], rec['reject_result'], rec['notes'], rec['record_date']
+                    rec['reject'], rec['reject_result'], rec['notes'], rec['record_date'],
+                    rec.get('order_status', ''), rec.get('after_sale_status', '')
                 )
             elif column == 7:  # 驳回列
                 new_reject = not rec['reject']  # 切换状态
                 self.db.update_record(
                     record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                     rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
-                    new_reject, rec['reject_result'], rec['notes'], rec['record_date']
+                    new_reject, rec['reject_result'], rec['notes'], rec['record_date'],
+                    rec.get('order_status', ''), rec.get('after_sale_status', '')
                 )
             
-            # 强制刷新整个表格，忽略缓存
-            self.load_table_data(force_reload=True)
+            self._refresh_row_by_record_id(record_id, refresh_statistics=True)
             
         except Exception as e:
-            # 如果出错，也强制刷新表格确保一致性
             self.load_table_data(force_reload=True)
 
 
@@ -6404,22 +6478,27 @@ class RefundManager(QMainWindow):
             self.db.update_record(
                 record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                 rec['refund_amount'], cancel, rec['compensate'], rec['comp_amount'],
-                rec['reject'], rec['reject_result'], rec['notes'], rec['record_date']
+                rec['reject'], rec['reject_result'], rec['notes'], rec['record_date'],
+                rec.get('order_status', ''), rec.get('after_sale_status', '')
             )
         elif column == 5:  # 打款补偿列
             compensate = value.lower() in ['是', 'true', '1', 'yes']
             self.db.update_record(
                 record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                 rec['refund_amount'], rec['cancel'], compensate, rec['comp_amount'],
-                rec['reject'], rec['reject_result'], rec['notes'], rec['record_date']
+                rec['reject'], rec['reject_result'], rec['notes'], rec['record_date'],
+                rec.get('order_status', ''), rec.get('after_sale_status', '')
             )
         elif column == 7:  # 驳回列
             reject = value.lower() in ['是', 'true', '1', 'yes']
             self.db.update_record(
                 record_id, rec['store_id'], rec['order_no'], rec['reason'], 
                 rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
-                reject, rec['reject_result'], rec['notes'], rec['record_date']
+                reject, rec['reject_result'], rec['notes'], rec['record_date'],
+                rec.get('order_status', ''), rec.get('after_sale_status', '')
             )
+
+        self._refresh_row_by_record_id(record_id, refresh_statistics=True)
 
     def update_refund_amount(self, record_id, amount_text):
         """更新退款金额"""
@@ -6427,20 +6506,13 @@ class RefundManager(QMainWindow):
             # 提取数字部分
             amount = float(amount_text.replace('¥', '').strip())
             if self.db.update_refund_amount(record_id, amount):
-                # 更新显示格式
-                row = self.get_row_from_record_id(record_id)
-                if row is not None:
-                    item = self.table.item(row, 3)
-                    item.setText(f"¥{amount:.2f}")
-                # 只更新统计信息，不重新加载整个表格，避免无限循环
-                self.update_statusbar(self.get_filtered_records())
-                self.update_total_amount_display()
-                self.update_store_stats_display()
+                self._refresh_row_by_record_id(record_id, refresh_statistics=True)
                 self.show_tooltip("退款金额已更新", "rgba(76, 175, 80, 0.95)", 1000)  # 绿色气泡显示1秒
+            else:
+                self.load_table_data(force_reload=True)
         except ValueError:
             QMessageBox.warning(self, "错误", "请输入有效的金额数字")
-            # 重新加载数据恢复原值
-            self.load_table_data()
+            self._refresh_row_by_record_id(record_id, refresh_statistics=False)
 
     def update_comp_amount(self, record_id, amount_text):
         """更新补偿金额"""
@@ -6448,16 +6520,13 @@ class RefundManager(QMainWindow):
             # 提取数字部分
             amount = float(amount_text.replace('¥', '').strip())
             if self.db.update_comp_amount(record_id, amount):
-                # 更新显示格式
-                row = self.get_row_from_record_id(record_id)
-                if row is not None:
-                    item = self.table.item(row, 6)
-                    item.setText(f"¥{amount:.2f}")
-                    self.show_tooltip("补偿金额已更新", "rgba(76, 175, 80, 0.95)", 1000)  # 绿色气泡显示1秒
+                self._refresh_row_by_record_id(record_id, refresh_statistics=True)
+                self.show_tooltip("补偿金额已更新", "rgba(76, 175, 80, 0.95)", 1000)  # 绿色气泡显示1秒
+            else:
+                self.load_table_data(force_reload=True)
         except ValueError:
             QMessageBox.warning(self, "错误", "请输入有效的金额数字")
-            # 重新加载数据恢复原值
-            self.load_table_data()
+            self._refresh_row_by_record_id(record_id, refresh_statistics=False)
 
     def get_row_from_record_id(self, record_id):
         """根据记录ID获取行号"""
@@ -6607,7 +6676,8 @@ class RefundManager(QMainWindow):
                 self.db.update_record(
                     record_id, rec['store_id'], order_no, rec['reason'],
                     rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
-                    True, "驳回成功", rec['notes'], rec['record_date']
+                    True, "驳回成功", rec['notes'], rec['record_date'],
+                    rec.get('order_status', ''), rec.get('after_sale_status', '')
                 )
             
             # 更新显示
@@ -6646,7 +6716,8 @@ class RefundManager(QMainWindow):
                 self.db.update_record(
                     record_id, rec['store_id'], order_no, rec['reason'],
                     rec['refund_amount'], rec['cancel'], rec['compensate'], rec['comp_amount'],
-                    True, "驳回失败", rec['notes'], rec['record_date']
+                    True, "驳回失败", rec['notes'], rec['record_date'],
+                    rec.get('order_status', ''), rec.get('after_sale_status', '')
                 )
             
             # 取消48小时提醒（如果有）
@@ -7207,6 +7278,18 @@ class RefundManager(QMainWindow):
                         'required': False
                     },
                     {
+                        'target': '订单状态',
+                        'aliases': ['订单状态', '发货状态', '物流状态'],
+                        'keywords': ['订单状态', '发货状态', '物流状态', '发货'],
+                        'required': False
+                    },
+                    {
+                        'target': '售后状态',
+                        'aliases': ['售后状态', '退款状态', '售后单状态'],
+                        'keywords': ['售后状态', '退款状态', '售后单状态', '售后'],
+                        'required': False
+                    },
+                    {
                         'target': '登记日期',
                         'aliases': ['同意退款时间', '登记日期', '登记时间', '日期', '时间', '创建日期', '创建时间', '下单日期'],
                         'keywords': ['同意退款时间', '退款时间', '登记日期', '登记时间', '日期', '时间', '创建日期', '创建时间', 'date'],
@@ -7274,6 +7357,7 @@ class RefundManager(QMainWindow):
         skip_count = 0
         fail_count = 0
         duplicate_count = 0
+        status_filtered_skip_count = 0
         imported_record_dates = []
         self.highlighted_orders.clear()
         import_created_ids = []
@@ -7291,6 +7375,11 @@ class RefundManager(QMainWindow):
         for row_idx, row in enumerate(data_rows):
             try:
                 order_no = str(self._extract_mapped_value(row, column_mapping, '订单号', '')).strip()
+                if '订单状态' in column_mapping:
+                    order_status = str(self._extract_mapped_value(row, column_mapping, '订单状态', '')).strip()
+                    if order_status != '已发货':
+                        status_filtered_skip_count += 1
+                        continue
                 
                 if order_no:
                     if order_no not in order_no_groups:
@@ -7398,6 +7487,10 @@ class RefundManager(QMainWindow):
                 compensate = self._coerce_import_bool(self._extract_mapped_value(row, column_mapping, '打款补偿', '否'))
                 comp_amount = self._coerce_import_float(self._extract_mapped_value(row, column_mapping, '补偿金额', 0), 0.0)
                 cancel = self._coerce_import_bool(self._extract_mapped_value(row, column_mapping, '撤销', '否'))
+                order_status = str(self._extract_mapped_value(row, column_mapping, '订单状态', '')).strip()
+                after_sale_status = str(self._extract_mapped_value(row, column_mapping, '售后状态', '')).strip()
+                if '售后状态' in column_mapping:
+                    cancel = after_sale_status == '已撤销'
                 reject = self._coerce_import_bool(self._extract_mapped_value(row, column_mapping, '驳回', '否'))
                 reject_result = self._extract_mapped_value(row, column_mapping, '驳回结果', '')
                 if isinstance(reject_result, str):
@@ -7478,6 +7571,10 @@ class RefundManager(QMainWindow):
                         detected_fields['reject_result'] = reject_result
                     if '备注' in column_mapping:
                         detected_fields['notes'] = notes
+                    if '订单状态' in column_mapping:
+                        detected_fields['order_status'] = order_status
+                    if '售后状态' in column_mapping:
+                        detected_fields['after_sale_status'] = after_sale_status
                     if '登记日期' in column_mapping and record_date:
                         detected_fields['record_date'] = record_date
                     
@@ -7519,6 +7616,8 @@ class RefundManager(QMainWindow):
                                 'reject': reject,
                                 'reject_result': reject_result,
                                 'notes': notes,
+                                'order_status': order_status,
+                                'after_sale_status': after_sale_status,
                                 'record_date': record_date
                             },
                             'detected_fields': detected_fields  # 记录识别到的字段信息
@@ -7536,6 +7635,8 @@ class RefundManager(QMainWindow):
                         'reject': reject,
                         'reject_result': reject_result,
                         'notes': notes,
+                        'order_status': order_status,
+                        'after_sale_status': after_sale_status,
                         'record_date': record_date
                     })
             except Exception as e:
@@ -7749,7 +7850,9 @@ class RefundManager(QMainWindow):
                                               row_data['reject'],
                                               row_data['reject_result'],
                                               row_data['notes'],
-                                              row_data['record_date'])
+                                              row_data['record_date'],
+                                              row_data.get('order_status', ''),
+                                              row_data.get('after_sale_status', ''))
                 import_created_ids.append(record_id)
                 success_count += 1
                 imported_record_dates.append(row_data['record_date'])
@@ -7774,6 +7877,7 @@ class RefundManager(QMainWindow):
         result_msg += f"• 成功导入：{success_count} 条\n"
         result_msg += f"• 覆盖重复：{overwrite_count} 条\n"
         result_msg += f"• 跳过重复：{skip_count} 条\n"
+        result_msg += f"• 状态过滤跳过：{status_filtered_skip_count} 条\n"
         result_msg += f"• 导入失败：{fail_count} 条\n\n"
         
         if duplicate_count > 0:
@@ -8182,7 +8286,8 @@ class RefundManager(QMainWindow):
                                      record['reason'], record['refund_amount'], 
                                      record['cancel'], record['compensate'], record['comp_amount'],
                                      new_value == "是", reject_result, record['notes'], 
-                                     record['record_date'])
+                                     record['record_date'],
+                                     record.get('order_status', ''), record.get('after_sale_status', ''))
         
         # 使用activated信号而不是currentTextChanged，避免频繁触发
         combo.activated.connect(lambda index: on_selection_changed(combo.itemText(index)))
@@ -8222,7 +8327,8 @@ class RefundManager(QMainWindow):
                                      record['reason'], record['refund_amount'], 
                                      record['cancel'], record['compensate'], record['comp_amount'],
                                      record['reject'], new_value, record['notes'], 
-                                     record['record_date'])
+                                     record['record_date'],
+                                     record.get('order_status', ''), record.get('after_sale_status', ''))
         
         # 使用activated信号而不是currentTextChanged，避免频繁触发
         combo.activated.connect(lambda index: on_selection_changed(combo.itemText(index)))
