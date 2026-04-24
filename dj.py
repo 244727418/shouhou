@@ -7396,10 +7396,19 @@ class RefundManager(QMainWindow):
                 total_refund_amount = 0.0
                 total_comp_amount = 0.0
                 first_row_data = None
+                first_active_row_data = None
+                canceled_row_count = 0
                 
                 for row_idx, row in rows:
                     refund_amount = self._coerce_import_float(self._extract_mapped_value(row, column_mapping, '退款金额', 0), 0.0)
                     comp_amount = self._coerce_import_float(self._extract_mapped_value(row, column_mapping, '补偿金额', 0), 0.0)
+                    row_after_sale_status = str(self._extract_mapped_value(row, column_mapping, '售后状态', '')).strip()
+                    row_is_canceled = '售后状态' in column_mapping and row_after_sale_status == '已撤销'
+                    if row_is_canceled:
+                        canceled_row_count += 1
+                        refund_amount = 0.0
+                    elif first_active_row_data is None:
+                        first_active_row_data = row
                     
                     total_refund_amount += refund_amount
                     total_comp_amount += comp_amount
@@ -7408,9 +7417,9 @@ class RefundManager(QMainWindow):
                     if first_row_data is None:
                         first_row_data = row
                 
-                    # 创建合并后的订单数据
                 if first_row_data:
-                    merged_row = first_row_data.copy()
+                    base_row = first_active_row_data if first_active_row_data is not None else first_row_data
+                    merged_row = base_row.copy()
                     # 更新合并后的金额
                     if '退款金额' in column_mapping:
                         actual_amount_col = column_mapping['退款金额']
@@ -7418,6 +7427,9 @@ class RefundManager(QMainWindow):
                     if '补偿金额' in column_mapping:
                         actual_comp_amount_col = column_mapping['补偿金额']
                         merged_row[actual_comp_amount_col] = total_comp_amount
+                    if '售后状态' in column_mapping:
+                        actual_after_sale_col = column_mapping['售后状态']
+                        merged_row[actual_after_sale_col] = '已撤销' if total_refund_amount <= 0 and canceled_row_count == len(rows) else ''
                     
                     # 添加合并备注
                     if '备注' in column_mapping:
@@ -7426,6 +7438,8 @@ class RefundManager(QMainWindow):
                         merge_note = f"合并了{len(rows)}条重复记录，退款金额合计：{total_refund_amount:.2f}元"
                         if total_comp_amount > 0:
                             merge_note += f"，补偿金额合计：{total_comp_amount:.2f}元"
+                        if canceled_row_count > 0:
+                            merge_note += f"，其中{canceled_row_count}条已撤销未计入退款金额"
                         
                         if original_notes:
                             merged_row[actual_notes_col] = f"{original_notes} | {merge_note}"
@@ -7491,6 +7505,8 @@ class RefundManager(QMainWindow):
                 after_sale_status = str(self._extract_mapped_value(row, column_mapping, '售后状态', '')).strip()
                 if '售后状态' in column_mapping:
                     cancel = after_sale_status == '已撤销'
+                    if cancel:
+                        refund_amount = 0.0
                 reject = self._coerce_import_bool(self._extract_mapped_value(row, column_mapping, '驳回', '否'))
                 reject_result = self._extract_mapped_value(row, column_mapping, '驳回结果', '')
                 if isinstance(reject_result, str):
