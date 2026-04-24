@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import sqlite3
 import re
 import json
@@ -45,7 +45,6 @@ from PyQt5.uic import loadUi
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-import xlrd  # 用于支持 .xls 文件，需要安装 xlrd
 import os
 import sys
 import subprocess  # 用于启动更新程序
@@ -3051,6 +3050,25 @@ class Database:
                 'model': 'deepseek-chat'
             }
 
+# ---------------------------- AI分析独立窗口 ---------------------------------
+class AIAnalysisWindow(QWidget):
+    def __init__(self, panel_widget, parent=None):
+        super().__init__(None)
+        self.panel_widget = panel_widget
+        self.owner = parent
+        self.setWindowTitle("AI分析与图表数据")
+        self.setWindowFlag(Qt.Window, True)
+        self.resize(960, 720)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.addWidget(self.panel_widget)
+
+    def closeEvent(self, event):
+        self.hide()
+        event.ignore()
+
+
 # ---------------------------- 主窗口类 ---------------------------------
 class RefundManager(QMainWindow):
     def __init__(self):
@@ -3173,9 +3191,9 @@ class RefundManager(QMainWindow):
         self.bottom_splitter = bottom_splitter
         
         # 左上角：信息录入区（使用UI文件加载）
-        # 直接加载UI文件，UI文件中的顶层控件已经是QGroupBox
         self.input_panel = QGroupBox()
         loadUi(get_resource_path("input_panel.ui"), self.input_panel)
+        self.input_panel.setTitle("主要功能区")
         
         # 设置对象名称，用于样式表选择器
         self.input_panel.setObjectName("InputPanel")
@@ -3189,16 +3207,10 @@ class RefundManager(QMainWindow):
         # 连接导入导出按钮
         self._connect_import_export_buttons()
 
-        # 顶部水平布局：信息录入区 + 店铺信息区
-        top_horizontal_layout = QHBoxLayout()
-        
-        # 左侧：信息录入区（使用UI文件）
-        top_horizontal_layout.addWidget(self.input_panel)
-        
-        # 中间：AI分析与图表数据板块
-        ai_chart_group = QGroupBox("AI分析与图表数据")
+        # AI分析与图表数据板块
+        self.ai_chart_group = QGroupBox("AI分析与图表数据")
         ai_chart_layout = QVBoxLayout()
-        ai_chart_group.setLayout(ai_chart_layout)
+        self.ai_chart_group.setLayout(ai_chart_layout)
         
         # AI分析功能区域
         ai_analysis_layout = QHBoxLayout()
@@ -3276,8 +3288,6 @@ class RefundManager(QMainWindow):
         # 图表区域
         self.chart_widget = ChartWidget(self, self.db)
         ai_chart_layout.addWidget(self.chart_widget, 1)  # 1表示拉伸因子，让图表占据剩余空间
-        
-        top_horizontal_layout.addWidget(ai_chart_group)
         
         # 右侧：店铺信息区
         store_info_group = QGroupBox("店铺信息与统计")
@@ -3482,8 +3492,6 @@ class RefundManager(QMainWindow):
         # 将分割器容器添加到主布局
         store_info_layout.addWidget(splitter_container)
         
-        top_horizontal_layout.addWidget(store_info_group)
-        
         # 左下角：搜索筛选区 - 使用UI文件
         search_group = loadUi(get_resource_path("search_panel.ui"))
         
@@ -3632,20 +3640,22 @@ class RefundManager(QMainWindow):
         self.table.cellChanged.connect(self.on_cell_changed)
         
         # 将区域添加到分割器中
-        # 上部区域：信息录入区（左）、AI分析区（中）、店铺信息区（右）
-        top_splitter.addWidget(self.input_panel)           # 左：信息录入区
-        top_splitter.addWidget(ai_chart_group)        # 中：AI分析与图表数据
-        top_splitter.addWidget(store_info_group)      # 右：店铺信息区
+        # 上部区域：主要功能区（左）、店铺信息区（右）
+        top_splitter.addWidget(self.input_panel)
+        top_splitter.addWidget(store_info_group)
         
         # 设置分割器最小尺寸，防止折叠和瞬间变0
-        main_splitter.setMinimumSize(1000, 700)  # 主窗口最小尺寸（增大以适应三列布局）
-        top_splitter.setMinimumSize(300, 0)      # 上部区域最小宽度：每列至少300px
-        bottom_splitter.setMinimumSize(200, 300) # 下部区域最小尺寸：左200，右300
+        main_splitter.setMinimumSize(1000, 700)
+        top_splitter.setMinimumSize(300, 0)
+        bottom_splitter.setMinimumSize(200, 300)
         
         # 设置各板块的最小尺寸，确保布局合理
-        self.input_panel.setMinimumSize(300, 0)       # 信息录入区最小宽度
-        ai_chart_group.setMinimumSize(250, 0)    # AI分析区最小宽度
-        store_info_group.setMinimumSize(300, 0)  # 店铺信息区最小宽度
+        self.input_panel.setMinimumSize(300, 0)
+        self.ai_chart_group.setMinimumSize(320, 0)
+        store_info_group.setMinimumSize(300, 0)
+
+        # AI分析窗口独立显示，不占用主窗口上部布局
+        self.ai_window = AIAnalysisWindow(self.ai_chart_group, self)
         
         # 删除上部区域最小宽度限制，让用户完全自由调整
         
@@ -3986,6 +3996,46 @@ class RefundManager(QMainWindow):
             self.export_btn.clicked.connect(self.export_excel)
             print("[DEBUG] 导出按钮信号已连接")
 
+        self._setup_ai_window_button()
+
+    def _setup_ai_window_button(self):
+        """将AI窗口入口集成到主要功能区底部操作行"""
+        if hasattr(self, 'open_ai_window_btn'):
+            return
+
+        panel_layout = self.input_panel.layout()
+        if not panel_layout or not self.add_btn or not self.update_btn or not self.clear_btn:
+            return
+
+        operation_widget = QWidget(self.input_panel)
+        operation_layout = QHBoxLayout(operation_widget)
+        operation_layout.setContentsMargins(0, 0, 0, 0)
+        operation_layout.setSpacing(8)
+
+        panel_layout.removeWidget(self.add_btn)
+        panel_layout.removeWidget(self.update_btn)
+        panel_layout.removeWidget(self.clear_btn)
+
+        self.open_ai_window_btn = QPushButton("打开AI分析与图表窗口")
+        self.open_ai_window_btn.setMinimumHeight(36)
+        self.open_ai_window_btn.clicked.connect(self.open_ai_window)
+
+        operation_layout.addWidget(self.add_btn)
+        operation_layout.addWidget(self.update_btn)
+        operation_layout.addWidget(self.clear_btn)
+        operation_layout.addWidget(self.open_ai_window_btn)
+
+        panel_layout.addWidget(operation_widget, 6, 0, 1, 7)
+
+    def open_ai_window(self):
+        """打开独立的AI分析窗口"""
+        if not hasattr(self, 'ai_window') or self.ai_window is None:
+            return
+
+        self.ai_window.show()
+        self.ai_window.raise_()
+        self.ai_window.activateWindow()
+
     def on_store_combo_changed(self, store_name):
         """信息录入区店铺选择变化"""
         # 不再同步到搜索筛选区，保持两个区域独立
@@ -4024,12 +4074,7 @@ class RefundManager(QMainWindow):
         """设置固定的默认窗口设置（删除记忆功能）"""
         # 直接设置固定的默认值，不使用记忆功能
         self.main_splitter.setSizes([200, 750])  # 主分割器固定比例：上200，下750
-        # 调整上部水平分割器：往右移动100像素，放大店铺信息板块
-        # 原比例：[信息录入区, AI分析区, 店铺信息区] = [1000, 400, ?]
-        # 第一次调整：[800, 600, 400] - 信息录入区缩小200px，AI分析区扩大200px
-        # 第二次调整：[600, 800, 400] - 信息录入区再缩小200px，AI分析区再扩大200px
-        # 第三次调整：[700, 700, 500] - 信息录入区扩大100px，AI分析区缩小100px，店铺信息区扩大100px
-        self.top_splitter.setSizes([850, 550, 500])  # 三个区域的比例：左900(+200)，中500(-200)，右500(不变)
+        self.top_splitter.setSizes([920, 580])
         self.bottom_splitter.setSizes([160, 1240]) # 下部水平分割器固定比例：左110(+10)，右1290(-10)
 
     def closeEvent(self, event):

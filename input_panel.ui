@@ -11,10 +11,10 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>信息录入</string>
+   <string>主要功能区</string>
   </property>
   <property name="title">
-   <string>信息录入</string>
+   <string>主要功能区</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <property name="horizontalSpacing">
