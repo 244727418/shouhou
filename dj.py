@@ -7505,8 +7505,6 @@ class RefundManager(QMainWindow):
                 after_sale_status = str(self._extract_mapped_value(row, column_mapping, '售后状态', '')).strip()
                 if '售后状态' in column_mapping:
                     cancel = after_sale_status == '已撤销'
-                    if cancel:
-                        refund_amount = 0.0
                 reject = self._coerce_import_bool(self._extract_mapped_value(row, column_mapping, '驳回', '否'))
                 reject_result = self._extract_mapped_value(row, column_mapping, '驳回结果', '')
                 if isinstance(reject_result, str):
