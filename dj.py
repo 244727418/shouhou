@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QColorDialog, QListWidget, QListWidgetItem, QItemDelegate, QFontDialog, QSpinBox, QSlider, QSplitter,
     QSizePolicy, QProgressDialog, QTextEdit, QSystemTrayIcon
 )
-from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation, QObject, Q_ARG
+from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer, QRect, QPoint, QPropertyAnimation, QObject, Q_ARG, QSignalBlocker
 from PyQt5.QtGui import QColor, QKeySequence, QClipboard, QFont, QPalette, QIcon
 from PyQt5.uic import loadUi
 
@@ -336,12 +336,17 @@ class StoreSettingsDialog(QDialog):
         self.refund_budget_amount_edit.textChanged.connect(self.on_amount_changed)
         self.refund_budget_percent_edit.textChanged.connect(self.on_percent_changed)
 
+    @staticmethod
+    def _weekly_to_daily_avg(value):
+        """将用户录入的7天总值换算为日均值。"""
+        return value / 7 if value else 0.0
+
     def on_amount_changed(self, text):
         """金额输入变化时自动计算百分比"""
         if text and self.daily_sales_edit.text():
             try:
                 amount = float(text)
-                sales = float(self.daily_sales_edit.text())
+                sales = self._weekly_to_daily_avg(float(self.daily_sales_edit.text()))
                 if sales > 0:
                     percent = (amount / sales) * 100
                     # 临时断开信号避免循环
@@ -356,7 +361,7 @@ class StoreSettingsDialog(QDialog):
         if text and self.daily_sales_edit.text():
             try:
                 percent = float(text)
-                sales = float(self.daily_sales_edit.text())
+                sales = self._weekly_to_daily_avg(float(self.daily_sales_edit.text()))
                 amount = (percent / 100) * sales
                 # 临时断开信号避免循环
                 self.refund_budget_amount_edit.textChanged.disconnect(self.on_amount_changed)
@@ -368,7 +373,7 @@ class StoreSettingsDialog(QDialog):
     def save_settings(self):
         """保存设置"""
         try:
-            # 验证输入
+            # 保持存储字段不变，但录入含义改为7天总值
             daily_orders = int(self.daily_orders_edit.text()) if self.daily_orders_edit.text() else 0
             daily_sales = float(self.daily_sales_edit.text()) if self.daily_sales_edit.text() else 0.0
             
@@ -377,7 +382,7 @@ class StoreSettingsDialog(QDialog):
                 refund_budget = float(self.refund_budget_amount_edit.text())
             elif self.refund_budget_percent_edit.text():
                 percent = float(self.refund_budget_percent_edit.text())
-                refund_budget = (percent / 100) * daily_sales
+                refund_budget = (percent / 100) * self._weekly_to_daily_avg(daily_sales)
             else:
                 refund_budget = 0.0
             
@@ -441,9 +446,10 @@ class StoreSettingsDialog(QDialog):
             refund_budget = settings.get('refund_budget', 0.0)
             self.refund_budget_amount_edit.setText(str(refund_budget))
             
-            # 自动计算百分比
-            if settings.get('daily_sales', 0.0) > 0:
-                percent = (refund_budget / settings['daily_sales']) * 100
+            # 按周销售额录入、按日均销售额计算退款预算百分比
+            daily_avg_sales = self._weekly_to_daily_avg(settings.get('daily_sales', 0.0))
+            if daily_avg_sales > 0:
+                percent = (refund_budget / daily_avg_sales) * 100
                 self.refund_budget_percent_edit.setText(f"{percent:.2f}")
 
 
@@ -2443,8 +2449,8 @@ class Database:
             print(f"强制同步失败: {e}")
             return {'orphan_count': 0, 'duplicate_count': 0, 'invalid_count': 0, 'hidden_count': 0, 'total_cleaned': 0}
 
-    def get_filtered_record_count(self, order_no='', reason='全部', cancel='全部', compensate='全部',
-                                 reject='全部', reject_result='全部', start_date=None, end_date=None, store_name='全部'):
+    def get_filtered_record_count(self, order_no='', reason='全部', cancel='全部',
+                                 reject='全部', start_date=None, end_date=None, store_name='全部'):
         """根据筛选条件获取记录数"""
         cursor = self.conn.cursor()
         query = 'SELECT COUNT(*) FROM refund_records r JOIN stores s ON r.store_id = s.id WHERE 1=1'
@@ -2464,29 +2470,11 @@ class Database:
             elif cancel == '否':
                 query += ' AND r.cancel = 0'
         
-        if compensate != '全部':
-            if compensate == '是':
-                query += ' AND r.compensate = 1'
-            elif compensate == '否':
-                query += ' AND r.compensate = 0'
-        
         if reject != '全部':
             if reject == '是':
                 query += ' AND r.reject = 1'
             elif reject == '否':
                 query += ' AND r.reject = 0'
-        
-        if reject_result != '全部':
-            if reject_result == '驳回中':
-                # 驳回中：驳回为"是"，且结果为空、NULL，或不等于"驳回成功"也不等于"驳回失败"
-                query += ''' AND r.reject = 1 AND (
-                    r.reject_result IS NULL 
-                    OR r.reject_result = '' 
-                    OR (r.reject_result != '驳回成功' AND r.reject_result != '驳回失败')
-                )'''
-            else:
-                query += ' AND r.reject_result = ?'
-                params.append(reject_result)
         
         if start_date:
             query += ' AND r.record_date >= ?'
@@ -2721,8 +2709,8 @@ class Database:
         cursor.execute('DELETE FROM reject_countdown WHERE end_time < ?', (now,))
         self.conn.commit()
 
-    def search_records(self, order_no='', reason='全部', cancel='全部', compensate='全部',
-                       reject='全部', reject_result='全部', start_date=None, end_date=None, store_name='全部'):
+    def search_records(self, order_no='', reason='全部', cancel='全部',
+                       reject='全部', start_date=None, end_date=None, store_name='全部'):
         """根据条件搜索记录，返回结果列表"""
         cursor = self.conn.cursor()
         query = '''
@@ -2756,15 +2744,9 @@ class Database:
         if cancel != '全部':
             query += ' AND r.cancel = ?'
             params.append(1 if cancel == '是' else 0)
-        if compensate != '全部':
-            query += ' AND r.compensate = ?'
-            params.append(1 if compensate == '是' else 0)
         if reject != '全部':
             query += ' AND r.reject = ?'
             params.append(1 if reject == '是' else 0)
-        if reject_result != '全部':
-            query += ' AND r.reject_result = ?'
-            params.append(reject_result)
         if store_name != '全部':
             query += ' AND s.store_name = ?'
             params.append(store_name)
@@ -3313,11 +3295,12 @@ class RefundManager(QMainWindow):
         first_row_layout.addStretch()
         
         # 订单量显示
-        orders_label_title = QLabel("订单量：")
+        orders_label_title = QLabel("单量信息：")
         orders_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         first_row_layout.addWidget(orders_label_title)
-        self.orders_label = QLabel("0单")
-        self.orders_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
+        self.orders_label = QLabel("近7天填写：0单\n当前范围：0单")
+        self.orders_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
+        self.orders_label.setWordWrap(True)
         first_row_layout.addWidget(self.orders_label)
         
         # 添加弹性空间
@@ -3355,11 +3338,12 @@ class RefundManager(QMainWindow):
         second_row_layout = QHBoxLayout()
         
         # 销售金额显示
-        sales_label_title = QLabel("销售金额：")
+        sales_label_title = QLabel("销售额信息：")
         sales_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
         second_row_layout.addWidget(sales_label_title)
-        self.sales_label = QLabel("¥0.00")
-        self.sales_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
+        self.sales_label = QLabel("近7天填写：¥0.00\n当前范围：¥0.00")
+        self.sales_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
+        self.sales_label.setWordWrap(True)
         second_row_layout.addWidget(self.sales_label)
         
         # 添加弹性空间
@@ -3502,9 +3486,7 @@ class RefundManager(QMainWindow):
         self.start_date_edit = search_group.findChild(QDateEdit, "start_date_edit")
         self.end_date_edit = search_group.findChild(QDateEdit, "end_date_edit")
         self.search_cancel_combo = search_group.findChild(QComboBox, "search_cancel_combo")
-        self.search_compensate_combo = search_group.findChild(QComboBox, "search_compensate_combo")
         self.search_reject_combo = search_group.findChild(QComboBox, "search_reject_combo")
-        self.search_reject_result_combo = search_group.findChild(QComboBox, "search_reject_result_combo")
         
         # 获取按钮引用
         reset_btn = search_group.findChild(QPushButton, "reset_btn")
@@ -3518,6 +3500,8 @@ class RefundManager(QMainWindow):
         next_day_btn = quick_date_group.findChild(QPushButton, "next_day_btn")
         week_btn = quick_date_group.findChild(QPushButton, "week_btn")
         month_btn = quick_date_group.findChild(QPushButton, "month_btn")
+        full_week_btn = quick_date_group.findChild(QPushButton, "full_week_btn")
+        full_month_btn = quick_date_group.findChild(QPushButton, "full_month_btn")
         all_time_btn = quick_date_group.findChild(QPushButton, "all_time_btn")
         
         # 设置控件初始值
@@ -3572,15 +3556,9 @@ class RefundManager(QMainWindow):
         # 设置其他筛选条件
         self.search_cancel_combo.addItems(["全部", "是", "否"])
         self.search_cancel_combo.currentTextChanged.connect(self.on_search_changed)
-        
-        self.search_compensate_combo.addItems(["全部", "是", "否"])
-        self.search_compensate_combo.currentTextChanged.connect(self.on_search_changed)
-        
+
         self.search_reject_combo.addItems(["全部", "是", "否"])
         self.search_reject_combo.currentTextChanged.connect(self.on_search_changed)
-        
-        self.search_reject_result_combo.addItems(["全部", "驳回成功", "驳回失败", "驳回中"])
-        self.search_reject_result_combo.currentTextChanged.connect(self.on_search_changed)
         
         # 连接按钮信号
         reset_btn.clicked.connect(self.reset_search)
@@ -3591,6 +3569,8 @@ class RefundManager(QMainWindow):
         next_day_btn.clicked.connect(self.next_day)
         week_btn.clicked.connect(lambda: self.set_quick_date(7))
         month_btn.clicked.connect(lambda: self.set_quick_date(30))
+        full_week_btn.clicked.connect(self.set_last_full_week)
+        full_month_btn.clicked.connect(self.set_last_full_month)
         all_time_btn.clicked.connect(self.show_all_time)
         # 右下角：订单记录表格 - 使用UI文件
         table_group = loadUi(get_resource_path("table_panel.ui"))
@@ -4234,11 +4214,22 @@ class RefundManager(QMainWindow):
         # 更新当前店铺名称显示（使用搜索筛选区的店铺选择）
         current_store = self.search_store_combo.currentText() if self.search_store_combo.currentText() else "未选择"
         self.current_store_label.setText(current_store)
+
+        if self._should_skip_store_stats_calculation():
+            self._set_store_stats_skipped_state()
+            return
         
         # 更新订单量和销售金额
+        entered_metrics = self.get_entered_week_metrics()
         orders_sales = self.calculate_orders_and_sales()
-        self.orders_label.setText(f"{orders_sales['orders']}单")
-        self.sales_label.setText(f"¥{orders_sales['sales']:.2f}")
+        self.orders_label.setText(
+            f"近7天填写：{self._format_metric_value(entered_metrics['orders'])}单\n"
+            f"当前范围：{self._format_metric_value(orders_sales['orders'])}单"
+        )
+        self.sales_label.setText(
+            f"近7天填写：¥{entered_metrics['sales']:.2f}\n"
+            f"当前范围：¥{orders_sales['sales']:.2f}"
+        )
         
         # 更新日退款预算剩余
         daily_budget_remaining = self.calculate_daily_budget_remaining()
@@ -4283,8 +4274,82 @@ class RefundManager(QMainWindow):
             f"占比：{enhanced_stats['top_reason_ratio']:.1f}%"
         )
 
+    @staticmethod
+    def _weekly_to_daily_avg(value):
+        """将用户录入的7天总值换算为日均值。"""
+        try:
+            return float(value) / 7
+        except (ValueError, TypeError):
+            return 0.0
+
+    @staticmethod
+    def _format_metric_value(value):
+        """格式化数量显示，避免无意义的小数尾数。"""
+        return f"{float(value):.2f}".rstrip('0').rstrip('.')
+
+    def get_entered_week_metrics(self):
+        """获取用户填写的近7天单量和销售额。"""
+        if not self.store_settings:
+            return {"orders": 0.0, "sales": 0.0}
+
+        return {
+            "orders": self._safe_float(self.store_settings.get('daily_orders', 0)),
+            "sales": self._safe_float(self.store_settings.get('daily_sales', 0.0)),
+        }
+
+    @staticmethod
+    def _safe_float(value):
+        """安全转换为浮点数。"""
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _is_all_time_range(self):
+        """是否处于“全部时间”范围。"""
+        return (
+            self.start_date_edit.date() == QDate(2000, 1, 1) and
+            self.end_date_edit.date() == QDate(2100, 12, 31)
+        )
+
+    def _should_skip_store_stats_calculation(self):
+        """全部店铺 + 全部时间时，跳过店铺信息与统计板块计算。"""
+        current_store = self.search_store_combo.currentText()
+        return current_store == "全部" and self._is_all_time_range()
+
+    def _set_store_stats_skipped_state(self):
+        """设置店铺信息与统计板块为跳过计算的展示状态。"""
+        self.orders_label.setText("近7天填写：--\n当前范围：--")
+        self.sales_label.setText("近7天填写：--\n当前范围：--")
+        self.daily_budget_remaining_label.setText("--")
+        self.refund_count_label.setText(
+            "全部店铺 + 全部时间\n已跳过统计计算"
+        )
+        self.amount_label.setText(
+            "全部店铺 + 全部时间\n已跳过统计计算"
+        )
+        self.quality_stats_label.setText(
+            "全部店铺 + 全部时间\n已跳过统计计算"
+        )
+        self.reason_analysis_label.setText(
+            "全部店铺 + 全部时间\n已跳过统计计算"
+        )
+
+    def _create_search_signal_blockers(self):
+        """批量修改筛选条件时，阻止重复触发搜索。"""
+        widgets = [
+            getattr(self, 'search_store_combo', None),
+            getattr(self, 'search_order_edit', None),
+            getattr(self, 'search_cancel_combo', None),
+            getattr(self, 'search_reject_combo', None),
+            getattr(self, 'start_date_edit', None),
+            getattr(self, 'end_date_edit', None),
+            getattr(self, 'search_reason_dropdown', None),
+        ]
+        return [QSignalBlocker(widget) for widget in widgets if widget is not None]
+
     def calculate_daily_budget_remaining(self):
-        """计算日退款预算剩余（支持多天筛选）"""
+        """计算退款预算剩余（周销售额录入，预算按日均口径参与统计）。"""
         if not self.store_settings:
             return 0.0
         
@@ -4314,7 +4379,7 @@ class RefundManager(QMainWindow):
         return max(0.0, total_refund_budget - total_refund)
 
     def calculate_orders_and_sales(self):
-        """计算订单量和销售金额（用户设置值*筛选天数）"""
+        """计算订单量和销售金额（用户录入7天总值，统计时自动换算为日均）。"""
         try:
             if not self.store_settings:
                 return {"orders": 0, "sales": 0.0}
@@ -4324,18 +4389,18 @@ class RefundManager(QMainWindow):
             end_date = self.end_date_edit.date().toPyDate()
             days_count = (end_date - start_date).days + 1  # 计算筛选的天数
             
-            # 安全地获取用户设置的日订单量和日销售金额，并进行类型转换
+            # 安全地获取用户设置的周订单量和周销售额，并换算为日均值
             daily_orders_str = self.store_settings.get('daily_orders', '0')
             daily_sales_str = self.store_settings.get('daily_sales', '0.0')
             
             # 转换为数值类型，处理可能的异常
             try:
-                daily_orders = int(daily_orders_str) if daily_orders_str else 0
+                daily_orders = self._weekly_to_daily_avg(float(daily_orders_str)) if daily_orders_str else 0.0
             except (ValueError, TypeError):
-                daily_orders = 0
+                daily_orders = 0.0
                 
             try:
-                daily_sales = float(daily_sales_str) if daily_sales_str else 0.0
+                daily_sales = self._weekly_to_daily_avg(float(daily_sales_str)) if daily_sales_str else 0.0
             except (ValueError, TypeError):
                 daily_sales = 0.0
             
@@ -4399,8 +4464,8 @@ class RefundManager(QMainWindow):
         days_count = (end_date - start_date).days + 1  # 计算筛选的天数
         
         # 计算品质退款相关统计
-        # 顾客申请品质退款率：品质退款订单数 ÷ (用户设置的日订单量 × 筛选天数)
-        daily_orders = self.store_settings.get('daily_orders', 0)
+        # 顾客申请品质退款率：品质退款订单数 ÷ (用户设置的周单量÷7 × 筛选天数)
+        daily_orders = self._weekly_to_daily_avg(self.store_settings.get('daily_orders', 0))
         total_orders = daily_orders * days_count  # 多天的总订单量
         
         # 顾客申请品质退款率：只要退款原因不是"其他"的都算
@@ -4453,8 +4518,8 @@ class RefundManager(QMainWindow):
             if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):  # 未撤销且未驳回成功
                 total_refund += record['refund_amount']
         
-        # 计算退款金额占比：退款金额 ÷ (用户设置的日销售额 × 筛选天数)
-        daily_sales = self.store_settings.get('daily_sales', 0.0)
+        # 计算退款金额占比：退款金额 ÷ (用户设置的周销售额÷7 × 筛选天数)
+        daily_sales = self._weekly_to_daily_avg(self.store_settings.get('daily_sales', 0.0))
         total_sales = daily_sales * days_count  # 多天的总销售额
         refund_ratio = (total_refund / total_sales * 100) if total_sales > 0 else 0.0
         
@@ -4497,7 +4562,7 @@ class RefundManager(QMainWindow):
         days_count = (end_date - start_date).days + 1  # 计算筛选的天数
         
         # 计算总订单数
-        daily_orders = self.store_settings.get('daily_orders', 0)
+        daily_orders = self._weekly_to_daily_avg(self.store_settings.get('daily_orders', 0))
         total_orders = daily_orders * days_count  # 多天的总订单量
         
         # 统计退款原因出现次数
@@ -5267,16 +5332,14 @@ class RefundManager(QMainWindow):
                 reasons = list(self.search_reason_dropdown.selected_items)
             
             cancel = self.search_cancel_combo.currentText()
-            compensate = self.search_compensate_combo.currentText()
             reject = self.search_reject_combo.currentText()
-            reject_result = self.search_reject_result_combo.currentText()
             store_name = self.search_store_combo.currentText()
             start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
             end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
             reason_param = "全部" if not reasons else reasons
             
-            return self.db.search_records(order_no, reason_param, cancel, compensate, reject, reject_result, start_date, end_date, store_name)
+            return self.db.search_records(order_no, reason_param, cancel, reject, start_date, end_date, store_name)
         except Exception as e:
             print(f"[ERROR] get_filtered_records: 异常: {type(e).__name__}: {e}")
             import traceback
@@ -5428,7 +5491,7 @@ class RefundManager(QMainWindow):
             
             self._update_all_statistics(records)
             
-            self.update_current_chart()
+            self.update_current_chart(records)
             
             print("[DEBUG] load_table_data: 执行完成")
 
@@ -5563,9 +5626,7 @@ class RefundManager(QMainWindow):
             self.search_order_edit.text(),
             tuple(reasons) if reasons else (),
             self.search_cancel_combo.currentText(),
-            self.search_compensate_combo.currentText(),
             self.search_reject_combo.currentText(),
-            self.search_reject_result_combo.currentText(),
             self.search_store_combo.currentText(),
             self.start_date_edit.date().toString("yyyy-MM-dd"),
             self.end_date_edit.date().toString("yyyy-MM-dd")
@@ -5653,42 +5714,49 @@ class RefundManager(QMainWindow):
         
         return records, start_date, end_date
     
-    def update_current_chart(self):
+    def update_current_chart(self, records=None):
         """更新当前图表显示"""
         if hasattr(self, 'chart_widget'):
-            records, start_date, end_date = self.get_current_records_for_chart()
+            if records is None:
+                records, start_date, end_date = self.get_current_records_for_chart()
+            else:
+                start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+                end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
             self.chart_widget.update_chart(records, start_date, end_date)
 
     def reset_search(self):
         """重置搜索条件"""
+        self._search_timer.stop()
+        blockers = self._create_search_signal_blockers()
         self.search_order_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
         if hasattr(self, 'search_reason_dropdown'):
             self.search_reason_dropdown.clear_selection()  # 清空多选状态
         self.search_cancel_combo.setCurrentIndex(0)  # 全部
-        self.search_compensate_combo.setCurrentIndex(0)  # 全部
         self.search_reject_combo.setCurrentIndex(0)  # 全部
-        self.search_reject_result_combo.setCurrentIndex(0)  # 全部
         today = QDate.currentDate()
         self.start_date_edit.setDate(today)
         self.end_date_edit.setDate(today)
+        del blockers
         self.load_table_data()
 
     def show_all_records(self):
         """显示全部记录（清除所有筛选条件，强制重新加载）"""
+        self._search_timer.stop()
+        blockers = self._create_search_signal_blockers()
+
         # 清除所有筛选条件
         self.search_order_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
         if hasattr(self, 'search_reason_dropdown'):
             self.search_reason_dropdown.clear_selection()  # 清空多选状态
         self.search_cancel_combo.setCurrentIndex(0)  # 全部
-        self.search_compensate_combo.setCurrentIndex(0)  # 全部
         self.search_reject_combo.setCurrentIndex(0)  # 全部
-        self.search_reject_result_combo.setCurrentIndex(0)  # 全部
         
         # 设置日期为所有日期
         self.start_date_edit.setDate(QDate(2000, 1, 1))  # 很早的日期
         self.end_date_edit.setDate(QDate(2100, 12, 31))  # 很晚的日期
+        del blockers
         
         # 强制重新加载所有数据
         self.load_table_data(force_reload=True)
@@ -5699,6 +5767,7 @@ class RefundManager(QMainWindow):
 
     def set_quick_date(self, days):
         """快捷日期设置（近7天和近30天不包括今天）"""
+        self._search_timer.stop()
         today = QDate.currentDate()
         if days == 0:  # 今天
             start = today
@@ -5710,15 +5779,48 @@ class RefundManager(QMainWindow):
             # 近7天和近30天不包括今天，只计算完整一天的数据
             start = today.addDays(-days)  # 从昨天往前推days-1天
             end = today.addDays(-1)       # 到昨天为止
+        blockers = self._create_search_signal_blockers()
         self.start_date_edit.setDate(start)
         self.end_date_edit.setDate(end)
+        del blockers
+        self.load_table_data()
+
+    def set_last_full_week(self):
+        """设置为上一个完整自然周（周一到周日）。"""
+        self._search_timer.stop()
+        today = QDate.currentDate()
+        current_week_monday = today.addDays(1 - today.dayOfWeek())
+        start = current_week_monday.addDays(-7)
+        end = current_week_monday.addDays(-1)
+
+        blockers = self._create_search_signal_blockers()
+        self.start_date_edit.setDate(start)
+        self.end_date_edit.setDate(end)
+        del blockers
+        self.load_table_data()
+
+    def set_last_full_month(self):
+        """设置为上一个完整自然月。"""
+        self._search_timer.stop()
+        today = QDate.currentDate()
+        current_month_start = QDate(today.year(), today.month(), 1)
+        end = current_month_start.addDays(-1)
+        start = QDate(end.year(), end.month(), 1)
+
+        blockers = self._create_search_signal_blockers()
+        self.start_date_edit.setDate(start)
+        self.end_date_edit.setDate(end)
+        del blockers
         self.load_table_data()
     
     def show_all_time(self):
         """显示全部时间范围的记录（不触发时间曲线图自动刷新）"""
+        self._search_timer.stop()
+        blockers = self._create_search_signal_blockers()
         # 设置一个很大的日期范围来显示所有记录
         self.start_date_edit.setDate(QDate(2000, 1, 1))  # 很早的日期
         self.end_date_edit.setDate(QDate(2100, 12, 31))  # 很晚的日期
+        del blockers
         
         # 手动加载数据，避免触发图表自动刷新
         records = self.get_filtered_records()
@@ -6869,7 +6971,7 @@ class RefundManager(QMainWindow):
 
     def import_excel(self):
         """导入Excel文件（智能模糊导入）"""
-        file_path, _ = QFileDialog.getOpenFileName(self, "导入订单", "", "Excel文件 (*.xlsx *.xls)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "导入订单", "", "Excel文件 (*.xlsx)")
         if not file_path:
             return
 
@@ -6953,46 +7055,6 @@ class RefundManager(QMainWindow):
                             header_name = headers[idx]
                             # 读取所有列，而不仅仅是必要列
                             row_dict[header_name] = val
-                    data_rows.append(row_dict)
-            elif file_path.endswith('.xls'):
-                workbook = xlrd.open_workbook(file_path)
-                sheet = workbook.sheet_by_index(0)
-                headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
-                
-                # 检查必要列：根据搜索筛选区选择动态调整
-                current_search_store = self.search_store_combo.currentText()
-                if current_search_store and current_search_store != "全部":
-                    # 选择了具体店铺，店铺名称列可选，但登记日期必填
-                    required_config = [
-                        {'target': '订单号', 'keywords': ['订单']},
-                        {'target': '退款原因', 'keywords': ['退款', '原因']},
-                        {'target': '退款金额', 'keywords': ['退款', '金额']},
-                        {'target': '登记日期', 'keywords': ['日期', '登记']}
-                    ]
-                else:
-                    # 选择了"全部"，店铺名称列和登记日期都是必填
-                    required_config = [
-                        {'target': '店铺名称', 'keywords': ['店铺', '名称']},
-                        {'target': '订单号', 'keywords': ['订单']},
-                        {'target': '退款原因', 'keywords': ['退款', '原因']},
-                        {'target': '退款金额', 'keywords': ['退款', '金额']},
-                        {'target': '登记日期', 'keywords': ['日期', '登记']}
-                    ]
-                
-                # 检查必要列
-                missing_columns, column_mapping = self.check_required_columns(headers, required_config)
-                if missing_columns:
-                    QMessageBox.critical(self, "错误", f"Excel缺少必要列：{', '.join(missing_columns)}")
-                    return
-                
-                # 读取数据行，读取所有列（不仅仅是必要列）
-                for row_idx in range(1, sheet.nrows):
-                    row_dict = {}
-                    for col_idx in range(sheet.ncols):
-                        val = sheet.cell_value(row_idx, col_idx)
-                        header_name = headers[col_idx]
-                        # 读取所有列，而不仅仅是必要列
-                        row_dict[header_name] = val
                     data_rows.append(row_dict)
             else:
                 QMessageBox.critical(self, "错误", "不支持的文件格式")
@@ -7871,9 +7933,7 @@ class RefundManager(QMainWindow):
                     if hasattr(self, 'search_reason_dropdown'):
                         self.search_reason_dropdown.clear_selection()
                     self.search_cancel_combo.setCurrentText('全部')
-                    self.search_compensate_combo.setCurrentText('全部')
                     self.search_reject_combo.setCurrentText('全部')
-                    self.search_reject_result_combo.setCurrentText('全部')
                     self.search_store_combo.setCurrentText('全部')
                     
                     # 强制重新加载所有数据（从数据库下载到本地）
@@ -7916,9 +7976,7 @@ class RefundManager(QMainWindow):
                     if hasattr(self, 'search_reason_dropdown'):
                         self.search_reason_dropdown.clear_selection()
                     self.search_cancel_combo.setCurrentText('全部')
-                    self.search_compensate_combo.setCurrentText('全部')
                     self.search_reject_combo.setCurrentText('全部')
-                    self.search_reject_result_combo.setCurrentText('全部')
                     self.search_store_combo.setCurrentText('全部')
                     
                     if hasattr(self, 'load_table_data'):
@@ -8578,8 +8636,14 @@ class RefundManager(QMainWindow):
         start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
         
-        # 获取店铺设置
-        store_settings = self.store_settings.get(store_name, {})
+        # 获取店铺设置，并将周录入值换算为日均口径供统计/分析使用
+        raw_store_settings = self.db.get_store_settings(store_id) or {}
+        store_settings = {
+            "current_store": store_name,
+            "daily_orders": self._weekly_to_daily_avg(raw_store_settings.get("daily_orders", 0)),
+            "daily_sales": self._weekly_to_daily_avg(raw_store_settings.get("daily_sales", 0.0)),
+            "refund_budget_remaining": raw_store_settings.get("refund_budget", 0.0),
+        }
         
         # 获取退款统计（支持退款原因筛选）
         refund_stats = self.db.get_refund_stats_by_store(
@@ -8602,14 +8666,14 @@ class RefundManager(QMainWindow):
         
         # 获取所有店铺的设置并汇总
         stores = self.db.get_stores()
-        total_daily_orders = 0
+        total_daily_orders = 0.0
         total_daily_sales = 0.0
         total_refund_budget = 0.0
         
         for store_id, store_name in stores:
             store_settings = self.db.get_store_settings(store_id) or {}
-            total_daily_orders += store_settings.get("daily_orders", 0)
-            total_daily_sales += store_settings.get("daily_sales", 0.0)
+            total_daily_orders += self._weekly_to_daily_avg(store_settings.get("daily_orders", 0))
+            total_daily_sales += self._weekly_to_daily_avg(store_settings.get("daily_sales", 0.0))
             total_refund_budget += store_settings.get("refund_budget", 0.0)
         
         return {

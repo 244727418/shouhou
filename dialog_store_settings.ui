@@ -144,19 +144,19 @@ QLabel#or_label, QLabel#percent_label {
       <number>16</number>
      </property>
      
-     <!-- 日单量 -->
+     <!-- 上周单量 -->
      <item row="0" column="0">
       <widget class="QLabel" name="daily_orders_label">
        <property name="text">
-        <string>日单量：</string>
+        <string>上周单量：</string>
        </property>
       </widget>
      </item>
      <item row="0" column="1">
       <widget class="QLineEdit" name="daily_orders_edit">
        <property name="placeholderText">
-        <string>请输入日单量</string>
-       </property>
+        <string>请输入上周7天总单量</string>
+        </property>
        <property name="minimumSize">
         <size>
          <width>200</width>
@@ -166,19 +166,19 @@ QLabel#or_label, QLabel#percent_label {
       </widget>
      </item>
      
-     <!-- 日销售金额 -->
+     <!-- 上周销售金额 -->
      <item row="1" column="0">
       <widget class="QLabel" name="daily_sales_label">
        <property name="text">
-        <string>日销售金额：</string>
-       </property>
+        <string>上周销售额：</string>
+        </property>
       </widget>
      </item>
      <item row="1" column="1">
       <widget class="QLineEdit" name="daily_sales_edit">
        <property name="placeholderText">
-        <string>请输入日销售金额</string>
-       </property>
+        <string>请输入上周7天总销售额</string>
+        </property>
        <property name="minimumSize">
         <size>
          <width>200</width>
@@ -254,10 +254,10 @@ QLabel#or_label, QLabel#percent_label {
    
    <!-- 说明文字 -->
    <item>
-    <widget class="QLabel" name="description_label">
-     <property name="text">
-      <string>&lt;span style='color: #6c757d; font-style: italic; font-size: 14px;'&gt;提示：退款预算可以输入具体金额或销售金额的百分比&lt;/span&gt;</string>
-     </property>
+     <widget class="QLabel" name="description_label">
+      <property name="text">
+      <string>&lt;span style='color: #6c757d; font-style: italic; font-size: 14px;'&gt;提示：这里填写上周7天总单量/总销售额，外部统计会自动换算为日均并按当前筛选天数显示；退款预算可以输入具体金额或销售额百分比&lt;/span&gt;</string>
+      </property>
      <property name="alignment">
       <set>Qt::AlignCenter</set>
      </property>

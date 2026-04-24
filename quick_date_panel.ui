@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>200</height>
+    <height>240</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -147,6 +147,45 @@
        </property>
        <property name="styleSheet">
         <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #45B7D1; border-radius: 4px; background-color: #45B7D1; color: white; font-weight: bold; } QPushButton:hover { background-color: #29B6F6; }</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="full_week_month_layout">
+     <property name="spacing">
+      <number>2</number>
+     </property>
+     <item>
+      <widget class="QPushButton" name="full_week_btn">
+       <property name="text">
+        <string>近一周</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>90</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #5C6BC0; border-radius: 4px; background-color: #5C6BC0; color: white; font-weight: bold; } QPushButton:hover { background-color: #3F51B5; }</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="full_month_btn">
+       <property name="text">
+        <string>近一个月</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>90</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #5C6BC0; border-radius: 4px; background-color: #5C6BC0; color: white; font-weight: bold; } QPushButton:hover { background-color: #3F51B5; }</string>
        </property>
       </widget>
      </item>
