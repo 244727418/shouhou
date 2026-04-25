@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """1.7 发布构建脚本。
 
-默认优先构建 onedir 版本，onefile 作为可选对比产物。
+默认构建稳定优先的 onefile 版本；onedir 仅保留为排障备选。
 强制使用项目本地 .venv，避免误用全局 Conda 环境。
 """
 
@@ -33,10 +33,10 @@ def parse_args():
     parser.add_argument(
         "--mode",
         choices=("onedir", "onefile", "all"),
-        default="onedir",
-        help="构建模式，默认 onedir",
+        default="onefile",
+        help="构建模式，默认 onefile",
     )
-    parser.add_argument("--clean", action="store_true", help="构建前清理 build/dist 目录")
+    parser.add_argument("--clean", action="store_true", help="构建前清理 build/release 目录")
     return parser.parse_args()
 
 
