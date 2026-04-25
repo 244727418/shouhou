@@ -123,14 +123,16 @@ class MultiSelectComboBox(QWidget):
         
         # 下拉按钮
         self.dropdown_btn = QPushButton("选择退款原因 ▼")
-        self.dropdown_btn.setFixedSize(150, 30)
+        self.dropdown_btn.setMinimumHeight(32)
+        self.dropdown_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.dropdown_btn.setStyleSheet("""
             QPushButton { 
                 border: 1px solid #ccc; 
-                border-radius: 3px; 
-                padding: 5px; 
+                border-radius: 8px; 
+                padding: 6px 10px; 
                 text-align: left; 
                 background-color: white;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #f0f0f0;
@@ -138,6 +140,7 @@ class MultiSelectComboBox(QWidget):
         """)
         self.dropdown_btn.clicked.connect(self.toggle_dropdown)
         layout.addWidget(self.dropdown_btn)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
         # 下拉窗口
         self.dropdown_widget = QWidget()
@@ -276,7 +279,7 @@ class MultiSelectComboBox(QWidget):
     def setMaximumWidth(self, width):
         """设置最大宽度"""
         self.dropdown_btn.setMaximumWidth(width)
-        self.setFixedWidth(width)
+        QWidget.setMaximumWidth(self, width)
     
     def dropdown_focus_out(self, event):
         """当下拉窗口失去焦点时关闭并触发刷新"""
@@ -3263,36 +3266,35 @@ class RefundManager(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # 主布局：垂直分割器（上下分割）
-        main_splitter = QSplitter(Qt.Vertical)
-        main_splitter.setChildrenCollapsible(False)  # 禁止折叠子部件
-        main_splitter.setStretchFactor(0, 1)  # 上部区域可拉伸
-        main_splitter.setStretchFactor(1, 1)  # 下部区域可拉伸
+        # 主布局：三列分割器（左侧栏 / 中间主区域 / 右侧统计栏）
+        main_splitter = QSplitter(Qt.Horizontal)
+        main_splitter.setChildrenCollapsible(False)
+        main_splitter.setHandleWidth(8)
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setStretchFactor(2, 0)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.addWidget(main_splitter)
-        
-        # 上部区域：水平分割器（三列分割）
-        top_splitter = QSplitter(Qt.Horizontal)
-        top_splitter.setChildrenCollapsible(False)  # 禁止折叠子部件
-        top_splitter.setStretchFactor(0, 1)  # 左侧信息录入区可拉伸
-        top_splitter.setStretchFactor(1, 1)  # 中间AI分析区可拉伸
-        top_splitter.setStretchFactor(2, 1)  # 右侧店铺信息区可拉伸
-        
-        # 下部区域：水平分割器（左右分割）
-        bottom_splitter = QSplitter(Qt.Horizontal)
-        bottom_splitter.setChildrenCollapsible(False)  # 禁止折叠子部件
-        bottom_splitter.setHandleWidth(8)  # 增加分割器手柄宽度，便于拖拽
-        bottom_splitter.setStretchFactor(0, 1)  # 左侧搜索筛选区可拉伸
-        bottom_splitter.setStretchFactor(1, 1)  # 右侧表格区可拉伸
-        
-        # 将上下分割器添加到主分割器
-        main_splitter.addWidget(top_splitter)
-        main_splitter.addWidget(bottom_splitter)
-        
-        # 保存分割器引用，用于记忆功能
+
+        # 左侧栏：搜索筛选 + 快捷日期
+        left_sidebar_splitter = QSplitter(Qt.Vertical)
+        left_sidebar_splitter.setChildrenCollapsible(False)
+        left_sidebar_splitter.setHandleWidth(6)
+        left_sidebar_splitter.setStretchFactor(0, 1)
+        left_sidebar_splitter.setStretchFactor(1, 0)
+
+        # 中间列：主要功能区 + 订单记录表格
+        center_splitter = QSplitter(Qt.Vertical)
+        center_splitter.setChildrenCollapsible(False)
+        center_splitter.setHandleWidth(8)
+        center_splitter.setStretchFactor(0, 0)
+        center_splitter.setStretchFactor(1, 1)
+
+        # 保存分割器引用，用于固定默认尺寸
         self.main_splitter = main_splitter
-        self.top_splitter = top_splitter
-        self.bottom_splitter = bottom_splitter
+        self.top_splitter = center_splitter
+        self.bottom_splitter = left_sidebar_splitter
         
         # 左上角：信息录入区（使用UI文件加载）
         self.input_panel = QGroupBox()
@@ -3310,8 +3312,9 @@ class RefundManager(QMainWindow):
         
         # 连接导入导出按钮
         self._connect_import_export_buttons()
+        self._optimize_input_panel_layout()
 
-        # AI分析与图表数据板块
+        # AI分析与图表数据窗口（按钮入口保留在主要功能区，窗口不占主布局）
         self.ai_chart_group = QGroupBox("AI分析与图表数据")
         ai_chart_layout = QVBoxLayout()
         self.ai_chart_group.setLayout(ai_chart_layout)
@@ -3396,52 +3399,73 @@ class RefundManager(QMainWindow):
         # 右侧：店铺信息区
         store_info_group = QGroupBox("店铺信息与统计")
         store_info_layout = QVBoxLayout()
+        store_info_layout.setContentsMargins(6, 6, 6, 6)
+        store_info_layout.setSpacing(4)
         store_info_group.setLayout(store_info_layout)
-        
-        # 顶部：店铺信息显示区域（两行布局）
-        top_info_layout = QVBoxLayout()
-        top_info_layout.setSpacing(6)  # 设置行间距
-        
-        # 第一行：当前店铺、订单量和设置按钮
-        first_row_layout = QHBoxLayout()
-        
-        # 店铺名称显示
-        current_store_label_title = QLabel("当前店铺：")
-        current_store_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        first_row_layout.addWidget(current_store_label_title)
-        self.current_store_label = QLabel("未选择")
-        self.current_store_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        first_row_layout.addWidget(self.current_store_label)
-        
-        # 添加弹性空间
-        first_row_layout.addStretch()
-        
-        # 订单量显示
-        orders_label_title = QLabel("单量信息：")
-        orders_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        first_row_layout.addWidget(orders_label_title)
-        self.orders_label = QLabel("近7天填写：0单\n当前范围：0单")
-        self.orders_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        self.orders_label.setWordWrap(True)
-        first_row_layout.addWidget(self.orders_label)
-        
-        # 添加弹性空间
-        first_row_layout.addStretch()
-        
-        # 店铺基本信息设置按钮（文字按钮）
-        self.store_settings_btn = QPushButton("设置")
+
+        stats_column = QVBoxLayout()
+        stats_column.setContentsMargins(0, 0, 0, 0)
+        stats_column.setSpacing(4)
+
+        base_cell_style = (
+            "font-family: 'Microsoft YaHei'; font-size: 11px; font-weight: bold; "
+            "color: #2D3748; background-color: #f8f9fa; border: 1px solid #d8dee6; "
+            "border-radius: 5px; padding: 2px 6px;"
+        )
+        strong_cell_style = (
+            "font-family: 'Microsoft YaHei'; font-size: 11px; font-weight: bold; "
+            "color: #1F2937; background-color: #EEF5FF; border: 1px solid #C9DAF8; "
+            "border-radius: 5px; padding: 2px 6px;"
+        )
+        budget_cell_style = (
+            "font-family: 'Microsoft YaHei'; font-size: 11px; font-weight: bold; "
+            "color: #D64545; background-color: #FFF5F5; border: 1px solid #F2CACA; "
+            "border-radius: 5px; padding: 2px 6px;"
+        )
+
+        def add_info_cell(initial_text, attr_name, style=base_cell_style):
+            value_label = QLabel(initial_text)
+            value_label.setStyleSheet(style)
+            value_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            value_label.setWordWrap(False)
+            value_label.setMinimumHeight(26)
+            value_label.setMaximumHeight(26)
+            setattr(self, attr_name, value_label)
+            stats_column.addWidget(value_label)
+            return value_label
+
+        add_info_cell("当前店铺：未选择", "current_store_label", strong_cell_style)
+        add_info_cell("当前范围单量：0", "orders_label")
+        add_info_cell("当前范围销售额：¥0.0", "sales_label")
+        add_info_cell("退款预算：¥0.0", "daily_budget_remaining_label", budget_cell_style)
+        add_info_cell("品质退款：0单", "quality_refund_count_label")
+        add_info_cell("其他退款：0单", "other_refund_count_label")
+        add_info_cell("撤销品质：0单", "canceled_quality_count_label")
+        add_info_cell("总退款率：0.00%", "total_refund_rate_label")
+        add_info_cell("售后总额：¥0.0", "total_after_sales_label")
+        add_info_cell("金额占比：0.00%", "refund_ratio_label")
+        add_info_cell("品质售后：¥0.0", "quality_after_sales_amount_label")
+        add_info_cell("其他售后：¥0.0", "other_after_sales_amount_label")
+        add_info_cell("申请品质率：0.00%", "quality_apply_rate_label")
+        add_info_cell("实际品质率：0.00%", "quality_actual_rate_label")
+        add_info_cell("撤销率：0.00%", "quality_cancel_rate_label")
+        add_info_cell("最多原因：无数据", "top_refund_reason_label")
+        add_info_cell("出现次数：0", "top_reason_count_label")
+        add_info_cell("占比：0.0%", "top_reason_ratio_label")
+        store_info_layout.addLayout(stats_column)
+
+        self.store_settings_btn = QPushButton("店铺设置")
         self.store_settings_btn.setStyleSheet("""
-            QPushButton { 
+            QPushButton {
                 font-family: 'Microsoft YaHei';
-                font-size: 14px; 
-                border: 2px solid #1976D2; 
-                border-radius: 6px; 
+                font-size: 11px;
+                border: 1px solid #1976D2;
+                border-radius: 6px;
                 background-color: #2196F3;
                 color: white;
                 font-weight: bold;
-                min-width: 60px;
-                min-height: 34px;
-                padding: 6px 12px;
+                min-height: 30px;
+                padding: 4px 8px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
@@ -3454,149 +3478,8 @@ class RefundManager(QMainWindow):
         """)
         self.store_settings_btn.setToolTip("店铺基本信息设置")
         self.store_settings_btn.clicked.connect(self.open_store_settings)
-        first_row_layout.addWidget(self.store_settings_btn)
-        
-        # 第二行：销售金额和退款预算剩余
-        second_row_layout = QHBoxLayout()
-        
-        # 销售金额显示
-        sales_label_title = QLabel("销售额信息：")
-        sales_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        second_row_layout.addWidget(sales_label_title)
-        self.sales_label = QLabel("近7天填写：¥0.00\n当前范围：¥0.00")
-        self.sales_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold; color: #2E8B57; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        self.sales_label.setWordWrap(True)
-        second_row_layout.addWidget(self.sales_label)
-        
-        # 添加弹性空间
-        second_row_layout.addStretch()
-        
-        # 日退款预算剩余
-        daily_budget_label_title = QLabel("退款预算剩余：")
-        daily_budget_label_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        second_row_layout.addWidget(daily_budget_label_title)
-        self.daily_budget_remaining_label = QLabel("¥0.00")
-        self.daily_budget_remaining_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 16px; font-weight: bold; color: #FF6B6B; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        second_row_layout.addWidget(self.daily_budget_remaining_label)
-        
-        # 将两行布局添加到垂直布局中
-        top_info_layout.addLayout(first_row_layout)
-        top_info_layout.addLayout(second_row_layout)
-        
-        store_info_layout.addLayout(top_info_layout)
-        
-        # 店铺统计信息（删除标题标签）
-        
-        # 创建分割器容器，让用户可以自由拖拽调整大小
-        splitter_container = QWidget()
-        splitter_layout = QVBoxLayout(splitter_container)
-        splitter_layout.setContentsMargins(2, 2, 2, 2)  # 减少边距，让内容更靠近边缘
-        
-        # 创建水平分割器（用于上下分割）
-        horizontal_splitter = QSplitter(Qt.Horizontal)
-        horizontal_splitter.setHandleWidth(6)  # 设置分割器手柄宽度
-        horizontal_splitter.setStyleSheet("QSplitter::handle { background-color: #e0e0e0; }")
-        
-        # 创建左侧垂直分割器（用于左上和左下）
-        left_vertical_splitter = QSplitter(Qt.Vertical)
-        left_vertical_splitter.setHandleWidth(6)
-        left_vertical_splitter.setStyleSheet("QSplitter::handle { background-color: #e0e0e0; }")
-        
-        # 创建右侧垂直分割器（用于右上和右下）
-        right_vertical_splitter = QSplitter(Qt.Vertical)
-        right_vertical_splitter.setHandleWidth(6)
-        right_vertical_splitter.setStyleSheet("QSplitter::handle { background-color: #e0e0e0; }")
-        
-        # 第一组：退款数量统计（左上角，自由拉伸）
-        refund_count_widget = QWidget()
-        refund_count_layout = QVBoxLayout(refund_count_widget)
-        refund_count_layout.setSpacing(4)
-        refund_count_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
-        
-        count_title = QLabel("退款数量统计")
-        count_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        refund_count_layout.addWidget(count_title)
-        
-        self.refund_count_label = QLabel("品质退款：0单\n其他退款：0单\n撤销品质退款：0单\n总退款率：0.00%")
-        self.refund_count_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #343a40; margin: 0px; line-height: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px;")
-        self.refund_count_label.setWordWrap(True)
-        self.refund_count_label.setMinimumHeight(90)  # 增加最小高度
-        self.refund_count_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
-        refund_count_layout.addWidget(self.refund_count_label)
-        
-        # 第二组：售后金额统计（右上角，自由拉伸）
-        amount_widget = QWidget()
-        amount_layout = QVBoxLayout(amount_widget)
-        amount_layout.setSpacing(4)
-        amount_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
-        
-        amount_title = QLabel("售后金额统计")
-        amount_title.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 4px 8px;")
-        amount_layout.addWidget(amount_title)
-        
-        self.amount_label = QLabel("售后总金额：¥0.00\n售后金额占比：0.00%\n品质售后金额：¥0.00\n其他售后金额：¥0.00")
-        self.amount_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold; color: #343a40; margin: 0px; line-height: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px;")
-        self.amount_label.setWordWrap(True)
-        self.amount_label.setMinimumHeight(90)  # 增加最小高度
-        self.amount_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
-        amount_layout.addWidget(self.amount_label)
-        
-        # 第三组：品质退款率统计（左下角，自由拉伸）
-        quality_widget = QWidget()
-        quality_layout = QVBoxLayout(quality_widget)
-        quality_layout.setSpacing(4)
-        quality_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
-        
-        quality_title = QLabel("品质退款率统计")
-        quality_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px;")
-        quality_layout.addWidget(quality_title)
-        
-        self.quality_stats_label = QLabel("顾客申请品质退款率：0.00%\n实际计入品质退款率：0.00%\n品质退款撤销率：0.00%")
-        self.quality_stats_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #343a40; margin: 0px; line-height: 18px;")
-        self.quality_stats_label.setWordWrap(True)
-        self.quality_stats_label.setMinimumHeight(90)  # 增加最小高度
-        self.quality_stats_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
-        quality_layout.addWidget(self.quality_stats_label)
-        
-        # 第四组：退款原因分析（右下角，自由拉伸）
-        reason_widget = QWidget()
-        reason_layout = QVBoxLayout(reason_widget)
-        reason_layout.setSpacing(4)
-        reason_layout.setContentsMargins(8, 6, 8, 6)  # 增加内边距
-        
-        reason_title = QLabel("退款原因分析")
-        reason_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin: 0px;")
-        reason_layout.addWidget(reason_title)
-        
-        self.reason_analysis_label = QLabel("退款最多原因：无数据\n出现次数：0次\n占比：0.0%")
-        self.reason_analysis_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #343a40; margin: 0px; line-height: 18px;")
-        self.reason_analysis_label.setWordWrap(True)
-        self.reason_analysis_label.setMinimumHeight(90)  # 增加最小高度
-        self.reason_analysis_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 自由拉伸
-        reason_layout.addWidget(self.reason_analysis_label)
-        
-        # 将四个组件添加到分割器中
-        left_vertical_splitter.addWidget(refund_count_widget)  # 左上
-        left_vertical_splitter.addWidget(quality_widget)       # 左下
-        right_vertical_splitter.addWidget(amount_widget)      # 右上
-        right_vertical_splitter.addWidget(reason_widget)      # 右下
-        
-        # 设置左右分割器的初始比例
-        left_vertical_splitter.setSizes([200, 200])
-        right_vertical_splitter.setSizes([200, 200])
-        
-        # 将左右分割器添加到水平分割器
-        horizontal_splitter.addWidget(left_vertical_splitter)
-        horizontal_splitter.addWidget(right_vertical_splitter)
-        
-        # 设置水平分割器的初始比例
-        horizontal_splitter.setSizes([400, 400])
-        
-        # 将水平分割器添加到容器布局
-        splitter_layout.addWidget(horizontal_splitter)
-        
-        # 将分割器容器添加到主布局
-        store_info_layout.addWidget(splitter_container)
+        store_info_layout.addWidget(self.store_settings_btn)
+        store_info_layout.addStretch()
         
         # 左下角：搜索筛选区 - 使用UI文件
         search_group = loadUi(get_resource_path("search_panel.ui"))
@@ -3645,22 +3528,15 @@ class RefundManager(QMainWindow):
         reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "生产日期/保质期与商品描述不符", "其他"]
         self.search_reason_dropdown = MultiSelectComboBox()
         self.search_reason_dropdown.addItems(reasons)
-        self.search_reason_dropdown.setMaximumWidth(150)
         self.search_reason_dropdown.itemsChanged.connect(self.on_search_changed)
-        
-        # 将多选控件添加到布局中
-        search_reason_layout = QHBoxLayout()
-        search_reason_layout.addWidget(self.search_reason_dropdown)
-        search_reason_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 找到退款原因标签所在的位置，将按钮替换为多选控件
-        # 退款原因在第2行第1列（row=2, column=1）
-        # 直接移除原来的按钮，添加多选控件到相同位置
+        self.search_reason_dropdown.setMinimumHeight(32)
+
+        # 找到退款原因按钮所在的位置，将其替换为多选控件
         search_group.layout().removeWidget(self.search_reason_btn)
         self.search_reason_btn.setParent(None)
-        
-        # 添加多选控件到布局（第2行第1列）
-        search_group.layout().addWidget(self.search_reason_dropdown, 2, 1)
+
+        # 添加多选控件到新的单列布局位置
+        search_group.layout().addWidget(self.search_reason_dropdown, 5, 0)
                 
         print(f"[DEBUG] 搜索筛选区退款原因多选控件已设置，选项数量: {len(reasons)}")
         
@@ -3741,37 +3617,36 @@ class RefundManager(QMainWindow):
         # 连接单元格编辑完成信号
         self.table.cellChanged.connect(self.on_cell_changed)
         
-        # 将区域添加到分割器中
-        # 上部区域：主要功能区（左）、店铺信息区（右）
-        top_splitter.addWidget(self.input_panel)
-        top_splitter.addWidget(store_info_group)
-        
-        # 设置分割器最小尺寸，防止折叠和瞬间变0
-        main_splitter.setMinimumSize(1000, 700)
-        top_splitter.setMinimumSize(300, 0)
-        bottom_splitter.setMinimumSize(200, 300)
-        
-        # 设置各板块的最小尺寸，确保布局合理
-        self.input_panel.setMinimumSize(300, 0)
-        self.ai_chart_group.setMinimumSize(320, 0)
-        store_info_group.setMinimumSize(300, 0)
-
-        # AI分析窗口独立显示，不占用主窗口上部布局
+        # AI分析窗口独立显示，不占用主窗口主布局
         self.ai_window = AIAnalysisWindow(self.ai_chart_group, self)
-        
-        # 删除上部区域最小宽度限制，让用户完全自由调整
-        
-        # 下部左侧：垂直布局（搜索筛选区 + 快捷日期）
-        left_bottom_widget = QWidget()
-        left_bottom_layout = QVBoxLayout(left_bottom_widget)
-        left_bottom_layout.addWidget(search_group)
-        left_bottom_layout.addWidget(quick_date_group)  # 添加快捷日期组件
-        
-        # 下部区域：左侧（搜索筛选 + 快捷日期）和右侧（订单记录表格）
-        bottom_splitter.addWidget(left_bottom_widget)  # 左：搜索筛选区 + 快捷日期
-        bottom_splitter.addWidget(table_group)         # 右：订单记录表格
-        
-        # 删除下部区域最小宽度限制，让用户完全自由调整
+
+        # 将区域添加到新的三列布局中
+        left_sidebar_splitter.addWidget(search_group)
+        left_sidebar_splitter.addWidget(quick_date_group)
+
+        center_splitter.addWidget(self.input_panel)
+        center_splitter.addWidget(table_group)
+
+        main_splitter.addWidget(left_sidebar_splitter)
+        main_splitter.addWidget(center_splitter)
+        main_splitter.addWidget(store_info_group)
+
+        # 设置各板块的最小尺寸，确保布局稳定
+        main_splitter.setMinimumSize(1000, 700)
+        left_sidebar_splitter.setMinimumWidth(138)
+        left_sidebar_splitter.setMaximumWidth(138)
+        left_sidebar_splitter.setSizes([420, 320])
+        center_splitter.setMinimumWidth(760)
+        store_info_group.setMinimumWidth(170)
+        store_info_group.setMaximumWidth(170)
+        self.input_panel.setMinimumSize(720, 260)
+        table_group.setMinimumSize(720, 320)
+        search_group.setMinimumWidth(138)
+        search_group.setMaximumWidth(138)
+        search_group.setMinimumHeight(390)
+        quick_date_group.setMinimumWidth(138)
+        quick_date_group.setMaximumWidth(138)
+        quick_date_group.setMinimumHeight(320)
 
         # 底部状态栏
         self.status_bar = QStatusBar()
@@ -4051,7 +3926,7 @@ class RefundManager(QMainWindow):
         # 初始化控件状态
         if self.comp_amount_edit:
             self.comp_amount_edit.setEnabled(False)
-        if self.reject_result_combo:
+        if self.reject_result_combo is not None:
             self.reject_result_combo.setEnabled(False)
             
         # 设置退款原因选项
@@ -4073,8 +3948,10 @@ class RefundManager(QMainWindow):
             print(f"[DEBUG] 退款原因下拉框未找到，无法设置选项")
             
         # 设置驳回结果选项
-        if self.reject_result_combo:
+        if self.reject_result_combo is not None:
+            self.reject_result_combo.clear()
             self.reject_result_combo.addItems(["驳回成功", "驳回失败"])
+            self.reject_result_combo.setCurrentIndex(0)
             
         # 设置日期为今天
         if self.record_date_edit:
@@ -4105,29 +3982,115 @@ class RefundManager(QMainWindow):
         if hasattr(self, 'open_ai_window_btn'):
             return
 
-        panel_layout = self.input_panel.layout()
-        if not panel_layout or not self.add_btn or not self.update_btn or not self.clear_btn:
+        placeholder = self.input_panel.findChild(QWidget, "ai_button_placeholder")
+        if not placeholder or not self.add_btn or not self.update_btn or not self.clear_btn:
             return
 
-        operation_widget = QWidget(self.input_panel)
-        operation_layout = QHBoxLayout(operation_widget)
-        operation_layout.setContentsMargins(0, 0, 0, 0)
-        operation_layout.setSpacing(8)
-
-        panel_layout.removeWidget(self.add_btn)
-        panel_layout.removeWidget(self.update_btn)
-        panel_layout.removeWidget(self.clear_btn)
-
-        self.open_ai_window_btn = QPushButton("打开AI分析与图表窗口")
-        self.open_ai_window_btn.setMinimumHeight(36)
+        self.open_ai_window_btn = QPushButton("AI分析")
+        self.open_ai_window_btn.setMinimumHeight(30)
         self.open_ai_window_btn.clicked.connect(self.open_ai_window)
+        placeholder_layout = placeholder.layout()
+        if placeholder_layout is None:
+            placeholder_layout = QHBoxLayout(placeholder)
+            placeholder_layout.setContentsMargins(0, 0, 0, 0)
+            placeholder_layout.setSpacing(0)
+        placeholder_layout.addWidget(self.open_ai_window_btn)
 
-        operation_layout.addWidget(self.add_btn)
-        operation_layout.addWidget(self.update_btn)
-        operation_layout.addWidget(self.clear_btn)
-        operation_layout.addWidget(self.open_ai_window_btn)
+    def _optimize_input_panel_layout(self):
+        """压缩主要功能区控件尺寸，使其适配更窄的中间列。"""
+        panel_layout = self.input_panel.layout()
+        if panel_layout:
+            if hasattr(panel_layout, "setHorizontalSpacing"):
+                panel_layout.setHorizontalSpacing(4)
+            if hasattr(panel_layout, "setVerticalSpacing"):
+                panel_layout.setVerticalSpacing(4)
+            panel_layout.setContentsMargins(8, 8, 8, 8)
 
-        panel_layout.addWidget(operation_widget, 6, 0, 1, 7)
+        label_names = [
+            "store_label", "order_label", "refund_label", "comp_label",
+            "reject_result_label", "reason_label", "date_label", "notes_label"
+        ]
+        for name in label_names:
+            label = self.input_panel.findChild(QLabel, name)
+            if not label:
+                continue
+            font = QFont(label.font())
+            font.setPointSize(10)
+            label.setFont(font)
+            label.setMinimumHeight(30)
+            label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        input_widgets = [
+            self.store_combo,
+            self.order_no_edit,
+            self.refund_amount_edit,
+            self.comp_amount_edit,
+            self.reject_result_combo,
+            self.reason_combo,
+            self.record_date_edit,
+        ]
+        for widget in input_widgets:
+            if not widget:
+                continue
+            font = QFont(widget.font())
+            font.setPointSize(10)
+            widget.setFont(font)
+            widget.setMinimumHeight(32)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        if self.comp_amount_edit:
+            self.comp_amount_edit.setMinimumWidth(70)
+        if self.refund_amount_edit:
+            self.refund_amount_edit.setMinimumWidth(70)
+        if self.notes_edit:
+            self.notes_edit.setMinimumWidth(160)
+
+        if self.notes_edit:
+            font = QFont(self.notes_edit.font())
+            font.setPointSize(10)
+            self.notes_edit.setFont(font)
+            self.notes_edit.setMinimumHeight(30)
+            self.notes_edit.setMaximumHeight(32)
+            self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.notes_edit.setLineWrapMode(QTextEdit.NoWrap)
+
+        for checkbox in [self.cancel_check, self.compensate_check, self.reject_check]:
+            if not checkbox:
+                continue
+            font = QFont(checkbox.font())
+            font.setPointSize(10)
+            checkbox.setFont(font)
+            checkbox.setMinimumHeight(30)
+            checkbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        compact_buttons = [
+            self.add_store_btn, self.edit_store_btn, self.delete_store_btn,
+            self.import_btn, self.export_btn, self.add_btn,
+            self.update_btn, self.clear_btn
+        ]
+        for button in compact_buttons:
+            if not button:
+                continue
+            font = QFont(button.font())
+            font.setPointSize(10)
+            button.setFont(font)
+            button.setMinimumHeight(30)
+            button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            button.setStyleSheet((button.styleSheet() or "") + "padding: 2px 8px;")
+
+        if hasattr(self, 'open_ai_window_btn') and self.open_ai_window_btn:
+            font = QFont(self.open_ai_window_btn.font())
+            font.setPointSize(10)
+            self.open_ai_window_btn.setFont(font)
+            self.open_ai_window_btn.setMinimumHeight(30)
+            self.open_ai_window_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self.open_ai_window_btn.setStyleSheet((self.open_ai_window_btn.styleSheet() or "") + "padding: 2px 8px;")
+
+        placeholder = self.input_panel.findChild(QWidget, "ai_button_placeholder")
+        if placeholder:
+            placeholder.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
 
     def open_ai_window(self):
         """打开独立的AI分析窗口"""
@@ -4258,9 +4221,9 @@ class RefundManager(QMainWindow):
     def load_window_settings(self):
         """设置固定的默认窗口设置（删除记忆功能）"""
         # 直接设置固定的默认值，不使用记忆功能
-        self.main_splitter.setSizes([200, 750])  # 主分割器固定比例：上200，下750
-        self.top_splitter.setSizes([920, 580])
-        self.bottom_splitter.setSizes([160, 1240]) # 下部水平分割器固定比例：左110(+10)，右1290(-10)
+        self.main_splitter.setSizes([138, 1142, 170])
+        self.top_splitter.setSizes([305, 525])
+        self.bottom_splitter.setSizes([420, 320])
 
     def closeEvent(self, event):
         """窗口关闭事件，保存设置并实现最小化到托盘"""
@@ -4383,9 +4346,10 @@ class RefundManager(QMainWindow):
             refund_rate = (refund_count / estimated_orders) * 100
         
         # 更新显示
-        self.store_stats_label.setText(
-            f"有效退款：{refund_count}单 | 退款率：{refund_rate:.2f}% | 总金额：¥{total_refund + total_comp:.2f}"
-        )
+        if hasattr(self, 'store_stats_label'):
+            self.store_stats_label.setText(
+                f"有效退款：{refund_count}单 | 退款率：{refund_rate:.2f}% | 总金额：¥{total_refund + total_comp:.2f}"
+            )
 
     def update_refund_rate(self):
         """更新退款率显示（现在使用信息录入区的店铺选择）"""
@@ -4418,27 +4382,19 @@ class RefundManager(QMainWindow):
         """更新店铺统计信息显示"""
         # 更新当前店铺名称显示（使用搜索筛选区的店铺选择）
         current_store = self.search_store_combo.currentText() if self.search_store_combo.currentText() else "未选择"
-        self.current_store_label.setText(current_store)
+        self.current_store_label.setText(f"当前店铺：{current_store}")
 
         if self._should_skip_store_stats_calculation():
             self._set_store_stats_skipped_state()
             return
         
-        # 更新订单量和销售金额
-        entered_metrics = self.get_entered_week_metrics()
         orders_sales = self.calculate_orders_and_sales()
-        self.orders_label.setText(
-            f"近7天填写：{self._format_metric_value(entered_metrics['orders'])}单\n"
-            f"当前范围：{self._format_metric_value(orders_sales['orders'])}单"
-        )
-        self.sales_label.setText(
-            f"近7天填写：¥{entered_metrics['sales']:.2f}\n"
-            f"当前范围：¥{orders_sales['sales']:.2f}"
-        )
+        self.orders_label.setText(f"当前范围单量：{self._format_metric_int(orders_sales['orders'])}")
+        self.sales_label.setText(f"当前范围销售额：¥{orders_sales['sales']:.1f}")
         
         # 更新日退款预算剩余
         daily_budget_remaining = self.calculate_daily_budget_remaining()
-        self.daily_budget_remaining_label.setText(f"¥{daily_budget_remaining:.2f}")
+        self.daily_budget_remaining_label.setText(f"退款预算：¥{daily_budget_remaining:.1f}")
         
         # 更新增强的退款统计信息
         enhanced_stats = self.calculate_enhanced_refund_stats()
@@ -4449,35 +4405,23 @@ class RefundManager(QMainWindow):
         # 更新售后金额相关统计
         refund_stats = self.calculate_refund_amount_stats()
         
-        # 第一组：退款数量统计（完整显示）
-        self.refund_count_label.setText(
-            f"品质退款：{enhanced_stats['quality_refund_count']}单\n"
-            f"其他退款：{enhanced_stats['other_refund_count']}单\n"
-            f"撤销品质退款：{enhanced_stats['canceled_quality_count']}单\n"
-            f"总退款率：{enhanced_stats['total_refund_rate']:.2f}%"
-        )
-        
-        # 第二组：金额统计（完整显示）
-        self.amount_label.setText(
-            f"售后总金额：¥{refund_stats['total_refund']:.2f}\n"
-            f"售后金额占比：{refund_stats['refund_ratio']:.2f}%\n"
-            f"品质售后金额：¥{enhanced_stats['quality_after_sales_amount']:.2f}\n"
-            f"其他售后金额：¥{enhanced_stats['other_after_sales_amount']:.2f}"
-        )
-        
-        # 第三组：品质退款率统计（完整显示）
-        self.quality_stats_label.setText(
-            f"顾客申请品质退款率：{quality_stats['apply_rate']:.2f}%\n"
-            f"实际计入品质退款率：{quality_stats['actual_rate']:.2f}%\n"
-            f"品质退款撤销率：{quality_stats['cancel_rate']:.2f}%"
-        )
-        
-        # 第四组：退款原因分析（完整显示）
-        self.reason_analysis_label.setText(
-            f"退款最多原因：{enhanced_stats['top_refund_reason']}\n"
-            f"出现次数：{enhanced_stats['top_reason_count']}次\n"
-            f"占比：{enhanced_stats['top_reason_ratio']:.1f}%"
-        )
+        self.quality_refund_count_label.setText(f"品质退款：{enhanced_stats['quality_refund_count']}单")
+        self.other_refund_count_label.setText(f"其他退款：{enhanced_stats['other_refund_count']}单")
+        self.canceled_quality_count_label.setText(f"撤销品质：{enhanced_stats['canceled_quality_count']}单")
+        self.total_refund_rate_label.setText(f"总退款率：{enhanced_stats['total_refund_rate']:.2f}%")
+
+        self.total_after_sales_label.setText(f"售后总额：¥{refund_stats['total_refund']:.1f}")
+        self.refund_ratio_label.setText(f"金额占比：{refund_stats['refund_ratio']:.2f}%")
+        self.quality_after_sales_amount_label.setText(f"品质售后：¥{enhanced_stats['quality_after_sales_amount']:.1f}")
+        self.other_after_sales_amount_label.setText(f"其他售后：¥{enhanced_stats['other_after_sales_amount']:.1f}")
+
+        self.quality_apply_rate_label.setText(f"申请品质率：{quality_stats['apply_rate']:.2f}%")
+        self.quality_actual_rate_label.setText(f"实际品质率：{quality_stats['actual_rate']:.2f}%")
+        self.quality_cancel_rate_label.setText(f"撤销率：{quality_stats['cancel_rate']:.2f}%")
+
+        self.top_refund_reason_label.setText(f"最多原因：{enhanced_stats['top_refund_reason']}")
+        self.top_reason_count_label.setText(f"出现次数：{enhanced_stats['top_reason_count']}")
+        self.top_reason_ratio_label.setText(f"占比：{enhanced_stats['top_reason_ratio']:.1f}%")
 
     @staticmethod
     def _weekly_to_daily_avg(value):
@@ -4491,6 +4435,14 @@ class RefundManager(QMainWindow):
     def _format_metric_value(value):
         """格式化数量显示，避免无意义的小数尾数。"""
         return f"{float(value):.2f}".rstrip('0').rstrip('.')
+
+    @staticmethod
+    def _format_metric_int(value):
+        """将单量显示为整数。"""
+        try:
+            return str(int(round(float(value))))
+        except (ValueError, TypeError):
+            return "0"
 
     def get_entered_week_metrics(self):
         """获取用户填写的近7天单量和销售额。"""
@@ -4524,21 +4476,24 @@ class RefundManager(QMainWindow):
 
     def _set_store_stats_skipped_state(self):
         """设置店铺信息与统计板块为跳过计算的展示状态。"""
-        self.orders_label.setText("近7天填写：--\n当前范围：--")
-        self.sales_label.setText("近7天填写：--\n当前范围：--")
-        self.daily_budget_remaining_label.setText("--")
-        self.refund_count_label.setText(
-            "全部店铺 + 全部时间\n已跳过统计计算"
-        )
-        self.amount_label.setText(
-            "全部店铺 + 全部时间\n已跳过统计计算"
-        )
-        self.quality_stats_label.setText(
-            "全部店铺 + 全部时间\n已跳过统计计算"
-        )
-        self.reason_analysis_label.setText(
-            "全部店铺 + 全部时间\n已跳过统计计算"
-        )
+        self.current_store_label.setText("当前店铺：全部")
+        self.orders_label.setText("当前范围单量：--")
+        self.sales_label.setText("当前范围销售额：--")
+        self.daily_budget_remaining_label.setText("退款预算：--")
+        self.quality_refund_count_label.setText("品质退款：--")
+        self.other_refund_count_label.setText("其他退款：--")
+        self.canceled_quality_count_label.setText("撤销品质：--")
+        self.total_refund_rate_label.setText("总退款率：--")
+        self.total_after_sales_label.setText("售后总额：--")
+        self.refund_ratio_label.setText("金额占比：--")
+        self.quality_after_sales_amount_label.setText("品质售后：--")
+        self.other_after_sales_amount_label.setText("其他售后：--")
+        self.quality_apply_rate_label.setText("申请品质率：--")
+        self.quality_actual_rate_label.setText("实际品质率：--")
+        self.quality_cancel_rate_label.setText("撤销率：--")
+        self.top_refund_reason_label.setText("最多原因：--")
+        self.top_reason_count_label.setText("出现次数：--")
+        self.top_reason_ratio_label.setText("占比：--")
 
     def _create_search_signal_blockers(self):
         """批量修改筛选条件时，阻止重复触发搜索。"""
@@ -4581,7 +4536,7 @@ class RefundManager(QMainWindow):
             if not record['cancel'] and not (record.get('reject') and record.get('reject_result') == "驳回成功"):  # 未撤销且未驳回成功
                 total_refund += record['refund_amount']
         
-        return max(0.0, total_refund_budget - total_refund)
+        return total_refund_budget - total_refund
 
     def calculate_orders_and_sales(self):
         """计算订单量和销售金额（用户录入7天总值，统计时自动换算为日均）。"""
@@ -6645,8 +6600,8 @@ class RefundManager(QMainWindow):
         # 更新显示为"等待操作"
         self.update_reject_result_display(order_no, f"{round_text}等待操作")
         
-        # 刷新表格
-        self.load_table_data()
+        # 强制重查数据库，避免旧缓存把界面上的驳回状态覆盖回去
+        self.load_table_data(force_reload=True)
     
     def on_reject_countdown_updated(self, order_no, remaining_seconds, round_text):
         """倒计时更新时的处理 - 实时更新工具提示显示剩余时间"""
@@ -6701,8 +6656,8 @@ class RefundManager(QMainWindow):
             # 停止驳回流程
             self.reject_manager.stop_process(order_no)
             
-            # 刷新表格
-            self.load_table_data()
+            # 强制重查数据库，避免旧缓存把刚写入的驳回成功状态覆盖掉
+            self.load_table_data(force_reload=True)
     
     def show_reject_success_actions_dialog(self, record_id, order_no, store_name):
         """显示驳回成功后的操作对话框（平台介入退款等）"""
@@ -6733,8 +6688,8 @@ class RefundManager(QMainWindow):
                 f"订单 {order_no} 已标记为平台介入退款（驳回失败）"
             )
             
-            # 刷新表格
-            self.load_table_data()
+            # 强制重查数据库，避免旧缓存把刚写入的驳回失败状态覆盖掉
+            self.load_table_data(force_reload=True)
     
     def on_reject_result_double_click(self, row, column):
         """双击驳回结果列的处理"""

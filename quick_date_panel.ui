@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>400</width>
-    <height>240</height>
+    <width>260</width>
+    <height>360</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -21,189 +21,161 @@
   </property>
   <layout class="QVBoxLayout" name="quick_date_layout">
    <property name="spacing">
-    <number>5</number>
+    <number>4</number>
    </property>
    <property name="leftMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="topMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="rightMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="bottomMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <item>
-    <layout class="QHBoxLayout" name="today_yesterday_layout">
-     <property name="spacing">
-      <number>2</number>
-     </property>
-     <item>
-      <widget class="QPushButton" name="today_btn">
-       <property name="text">
-        <string>今天</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #FF6B6B; border-radius: 4px; background-color: #FF6B6B; color: white; font-weight: bold; } QPushButton:hover { background-color: #FF5252; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="yesterday_btn">
-       <property name="text">
-        <string>昨天</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #FF6B6B; border-radius: 4px; background-color: #FF6B6B; color: white; font-weight: bold; } QPushButton:hover { background-color: #FF5252; }</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="prev_next_layout">
-     <property name="spacing">
-      <number>2</number>
-     </property>
-     <item>
-      <widget class="QPushButton" name="prev_day_btn">
-       <property name="text">
-        <string>◀ 前一天</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #4ECDC4; border-radius: 4px; background-color: #4ECDC4; color: white; font-weight: bold; } QPushButton:hover { background-color: #26C6DA; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="next_day_btn">
-       <property name="text">
-        <string>后一天 ▶</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #4ECDC4; border-radius: 4px; background-color: #4ECDC4; color: white; font-weight: bold; } QPushButton:hover { background-color: #26C6DA; }</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="week_month_layout">
-     <property name="spacing">
-      <number>2</number>
-     </property>
-     <item>
-      <widget class="QPushButton" name="week_btn">
-       <property name="text">
-        <string>近7天</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #45B7D1; border-radius: 4px; background-color: #45B7D1; color: white; font-weight: bold; } QPushButton:hover { background-color: #29B6F6; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="month_btn">
-       <property name="text">
-        <string>近30天</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #45B7D1; border-radius: 4px; background-color: #45B7D1; color: white; font-weight: bold; } QPushButton:hover { background-color: #29B6F6; }</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="full_week_month_layout">
-     <property name="spacing">
-      <number>2</number>
-     </property>
-     <item>
-      <widget class="QPushButton" name="full_week_btn">
-       <property name="text">
-        <string>近一周</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #5C6BC0; border-radius: 4px; background-color: #5C6BC0; color: white; font-weight: bold; } QPushButton:hover { background-color: #3F51B5; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="full_month_btn">
-       <property name="text">
-        <string>近一个月</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>90</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 5px 8px; border: 1px solid #5C6BC0; border-radius: 4px; background-color: #5C6BC0; color: white; font-weight: bold; } QPushButton:hover { background-color: #3F51B5; }</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QPushButton" name="all_time_btn">
-     <property name="text">
-      <string>全部时间</string>
-     </property>
+    <widget class="QPushButton" name="today_btn">
      <property name="minimumSize">
       <size>
        <width>0</width>
        <height>30</height>
       </size>
      </property>
+     <property name="text">
+      <string>今天</string>
+     </property>
      <property name="styleSheet">
-      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #96CEB4; border-radius: 4px; background-color: #96CEB4; color: white; font-weight: bold; } QPushButton:hover { background-color: #81C784; }</string>
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #FF6B6B; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #FF5252; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="yesterday_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>昨天</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #FF6B6B; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #FF5252; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="prev_day_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>前一天</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #4ECDC4; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #26C6DA; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="next_day_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>后一天</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #4ECDC4; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #26C6DA; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="week_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>近7天</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #45B7D1; border-radius: 6px; background-color: #45B7D1; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #29B6F6; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="month_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>近30天</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #45B7D1; border-radius: 6px; background-color: #45B7D1; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #29B6F6; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="full_week_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>近一周</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #5C6BC0; border-radius: 6px; background-color: #5C6BC0; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #3F51B5; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="full_month_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>近一个月</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #5C6BC0; border-radius: 6px; background-color: #5C6BC0; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #3F51B5; }</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="all_time_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>全部时间</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #96CEB4; border-radius: 6px; background-color: #96CEB4; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #81C784; }</string>
      </property>
     </widget>
    </item>

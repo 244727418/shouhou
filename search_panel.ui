@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>400</width>
-    <height>400</height>
+    <width>260</width>
+    <height>520</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,122 +16,86 @@
   <property name="title">
    <string>搜索筛选</string>
   </property>
-  <property name="objectName">
-   <string>SearchPanel</string>
-  </property>
-  <property name="objectName">
-   <string>SearchPanel</string>
-  </property>
   <layout class="QGridLayout" name="search_layout">
    <property name="horizontalSpacing">
-    <number>8</number>
+    <number>4</number>
    </property>
    <property name="verticalSpacing">
-    <number>8</number>
+    <number>4</number>
    </property>
    <property name="leftMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="topMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="rightMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="bottomMargin">
-    <number>10</number>
-   </property>
-   <property name="leftMargin">
-    <number>10</number>
-   </property>
-   <property name="topMargin">
-    <number>10</number>
-   </property>
-   <property name="rightMargin">
-    <number>10</number>
-   </property>
-   <property name="bottomMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <item row="0" column="0">
     <widget class="QLabel" name="label_store">
      <property name="text">
       <string>店铺</string>
      </property>
-     <property name="minimumSize">
-      <size>
-       <width>60</width>
-       <height>30</height>
-      </size>
-     </property>
      <property name="styleSheet">
-      <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
-     </property>
-    </widget>
-   </item>
-   <item row="0" column="1">
-    <widget class="QComboBox" name="search_store_combo">
-     <property name="minimumSize">
-      <size>
-       <width>150</width>
-       <height>30</height>
-      </size>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
      </property>
     </widget>
    </item>
    <item row="1" column="0">
-    <widget class="QLabel" name="label_order">
-     <property name="text">
-      <string>订单号</string>
-     </property>
+    <widget class="QComboBox" name="search_store_combo">
      <property name="minimumSize">
       <size>
-       <width>60</width>
+       <width>0</width>
        <height>30</height>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
-     </property>
-    </widget>
-   </item>
-   <item row="1" column="1">
-    <widget class="QLineEdit" name="search_order_edit">
-     <property name="minimumSize">
-      <size>
-       <width>150</width>
-       <height>30</height>
-      </size>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748;</string>
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
      </property>
     </widget>
    </item>
    <item row="2" column="0">
-    <widget class="QLabel" name="label_reason">
+    <widget class="QLabel" name="label_order">
      <property name="text">
-      <string>退款原因</string>
+      <string>订单号</string>
      </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+     </property>
+    </widget>
+   </item>
+   <item row="3" column="0">
+    <widget class="QLineEdit" name="search_order_edit">
      <property name="minimumSize">
       <size>
-       <width>70</width>
+       <width>0</width>
        <height>30</height>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748;</string>
      </property>
     </widget>
    </item>
-   <item row="2" column="1">
+   <item row="4" column="0">
+    <widget class="QLabel" name="label_reason">
+     <property name="text">
+      <string>退款原因</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+     </property>
+    </widget>
+   </item>
+   <item row="5" column="0">
     <widget class="QPushButton" name="search_reason_btn">
      <property name="minimumSize">
       <size>
-       <width>150</width>
+       <width>0</width>
        <height>30</height>
       </size>
      </property>
@@ -139,27 +103,21 @@
       <string>选择退款原因 ▼</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QPushButton:hover { background-color: #F7FAFC; }</string>
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; text-align: left; QPushButton:hover { background-color: #F7FAFC; }</string>
      </property>
     </widget>
    </item>
-   <item row="3" column="0">
+   <item row="6" column="0">
     <widget class="QLabel" name="label_start_date">
      <property name="text">
       <string>开始日期</string>
      </property>
-     <property name="minimumSize">
-      <size>
-       <width>70</width>
-       <height>30</height>
-      </size>
-     </property>
      <property name="styleSheet">
-      <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
      </property>
     </widget>
    </item>
-   <item row="3" column="1">
+   <item row="7" column="0">
     <widget class="QDateEdit" name="start_date_edit">
      <property name="calendarPopup">
       <bool>true</bool>
@@ -169,32 +127,26 @@
      </property>
      <property name="minimumSize">
       <size>
-       <width>150</width>
+       <width>0</width>
        <height>30</height>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QDateEdit::drop-down { border: none; } QDateEdit::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QDateEdit::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QDateEdit::drop-down { border: none; } QDateEdit::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QDateEdit::down-arrow:on { border-top: 6px solid #4A5568; }</string>
      </property>
     </widget>
    </item>
-   <item row="4" column="0">
+   <item row="8" column="0">
     <widget class="QLabel" name="label_end_date">
      <property name="text">
       <string>结束日期</string>
      </property>
-     <property name="minimumSize">
-      <size>
-       <width>70</width>
-       <height>30</height>
-      </size>
-     </property>
      <property name="styleSheet">
-      <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
      </property>
     </widget>
    </item>
-   <item row="4" column="1">
+   <item row="9" column="0">
     <widget class="QDateEdit" name="end_date_edit">
      <property name="calendarPopup">
       <bool>true</bool>
@@ -204,115 +156,113 @@
      </property>
      <property name="minimumSize">
       <size>
-       <width>150</width>
+       <width>0</width>
        <height>30</height>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QDateEdit::drop-down { border: none; } QDateEdit::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QDateEdit::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QDateEdit::drop-down { border: none; } QDateEdit::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QDateEdit::down-arrow:on { border-top: 6px solid #4A5568; }</string>
      </property>
     </widget>
    </item>
-   <item row="5" column="0" colspan="4">
+   <item row="10" column="0">
     <layout class="QHBoxLayout" name="cancel_reject_layout">
      <property name="spacing">
-      <number>8</number>
+      <number>4</number>
      </property>
      <item>
-      <widget class="QLabel" name="label_cancel">
-       <property name="text">
-        <string>撤销</string>
+      <layout class="QVBoxLayout" name="cancel_layout">
+       <property name="spacing">
+        <number>3</number>
        </property>
-       <property name="minimumSize">
-        <size>
-         <width>30</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
-       </property>
-      </widget>
+       <item>
+        <widget class="QLabel" name="label_cancel">
+         <property name="text">
+          <string>撤销</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="search_cancel_combo">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">padding: 6px 8px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
-      <widget class="QComboBox" name="search_cancel_combo">
-       <property name="minimumSize">
-        <size>
-         <width>80</width>
-         <height>30</height>
-        </size>
+      <layout class="QVBoxLayout" name="reject_layout">
+       <property name="spacing">
+        <number>3</number>
        </property>
-       <property name="styleSheet">
-        <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="label_reject">
-       <property name="text">
-        <string>驳回</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>30</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">padding: 4px 8px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="search_reject_combo">
-       <property name="minimumSize">
-        <size>
-         <width>80</width>
-         <height>30</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">padding: 6px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
-       </property>
-      </widget>
+       <item>
+        <widget class="QLabel" name="label_reject">
+         <property name="text">
+          <string>驳回</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="search_reject_combo">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">padding: 6px 8px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
     </layout>
    </item>
-   <item row="6" column="0" colspan="4">
-    <layout class="QHBoxLayout" name="button_layout">
-     <item>
-      <widget class="QPushButton" name="reset_btn">
-       <property name="text">
-        <string>重置筛选</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>100</width>
-         <height>35</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold; } QPushButton:hover { background-color: #FF5252; } QPushButton:pressed { background-color: #FF3D3D; }</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="show_all_btn">
-       <property name="text">
-        <string>显示全部</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>100</width>
-         <height>35</height>
-        </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">QPushButton { padding: 8px 16px; border: none; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; } QPushButton:hover { background-color: #26C6DA; } QPushButton:pressed { background-color: #00ACC1; }</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
+   <item row="11" column="0">
+    <widget class="QPushButton" name="reset_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>32</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>重置筛选</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 8px 12px; border: none; border-radius: 6px; background-color: #FF6B6B; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #FF5252; } QPushButton:pressed { background-color: #FF3D3D; }</string>
+     </property>
+    </widget>
+   </item>
+   <item row="12" column="0">
+    <widget class="QPushButton" name="show_all_btn">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>32</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>显示全部</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { padding: 8px 12px; border: none; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #26C6DA; } QPushButton:pressed { background-color: #00ACC1; }</string>
+     </property>
+    </widget>
    </item>
   </layout>
  </widget>
