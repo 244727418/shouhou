@@ -1,13 +1,16 @@
 # 打包生成的文件
 dist/
 build/
+release/
 *.exe
-*.spec
 
 # Python 临时文件
 __pycache__/
 *.pyc
 *.pyo
+*.db-journal
+*.tmp
+*.log
 
 # 虚拟环境
 venv/
@@ -17,3 +20,4 @@ env/
 # IDE 配置
 .vscode/
 .idea/
+.pytest_cache/

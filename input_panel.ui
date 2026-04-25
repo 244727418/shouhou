@@ -372,8 +372,11 @@
           <height>32</height>
          </size>
         </property>
-        <property name="placeholderText">
-         <string>0.00</string>
+        <property name="maximumSize">
+         <size>
+          <width>65</width>
+          <height>16777215</height>
+         </size>
         </property>
        </widget>
       </item>
@@ -431,8 +434,11 @@
           <height>32</height>
          </size>
         </property>
-        <property name="placeholderText">
-         <string>0.00</string>
+        <property name="maximumSize">
+         <size>
+          <width>65</width>
+          <height>16777215</height>
+         </size>
         </property>
        </widget>
       </item>
@@ -450,7 +456,7 @@
        <widget class="QTextEdit" name="notes_edit">
         <property name="minimumSize">
          <size>
-          <width>140</width>
+          <width>260</width>
           <height>30</height>
          </size>
         </property>

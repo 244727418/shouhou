@@ -5,17 +5,13 @@ import json
 import requests
 import markdown
 from datetime import datetime, timedelta
+import math
 import matplotlib
 matplotlib.use('Qt5Agg')  # 设置matplotlib使用Qt5后端
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
-import numpy as np
-
-# 配置中文字体支持
-import matplotlib.font_manager as fm
-
 # 尝试使用系统字体，避免斜体问题
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun']  # 设置中文字体优先级
 plt.rcParams['font.size'] = 8  # 设置更小的默认字体大小
@@ -58,7 +54,7 @@ from help_dialog import HelpDialog
 # ==================== 软件版本配置 ====================
 # 【重要】每次发布新版本时，必须修改这里的版本号！
 # 版本号格式：主版本.次版本.修订号
-CURRENT_VERSION = "1.5"
+CURRENT_VERSION = "1.7"
 
 # GitHub仓库配置
 # 【重要】请修改为你的GitHub用户名和仓库名
@@ -102,6 +98,15 @@ def get_resource_path(relative_path):
     
     # 方法4：如果以上都失败，返回相对路径（让PyQt5尝试处理）
     return relative_path
+
+
+def get_colormap_colors(colormap, count):
+    """生成均匀分布的颜色序列，避免额外的直接数值库依赖。"""
+    if count <= 0:
+        return []
+    if count == 1:
+        return [colormap(0.5)]
+    return [colormap(index / (count - 1)) for index in range(count)]
 
 
 
@@ -3639,7 +3644,8 @@ class RefundManager(QMainWindow):
         center_splitter.setMinimumWidth(760)
         store_info_group.setMinimumWidth(170)
         store_info_group.setMaximumWidth(170)
-        self.input_panel.setMinimumSize(720, 260)
+        self.input_panel.setMinimumWidth(720)
+        self.input_panel.setFixedHeight(240)
         table_group.setMinimumSize(720, 320)
         search_group.setMinimumWidth(138)
         search_group.setMaximumWidth(138)
@@ -3654,6 +3660,7 @@ class RefundManager(QMainWindow):
 
         # 加载保存的界面设置
         self.load_window_settings()
+        center_splitter.setSizes([240, 2000])
 
         # 初始化店铺信息下拉框
         self.load_store_info_combo()
@@ -3950,12 +3957,14 @@ class RefundManager(QMainWindow):
         # 设置驳回结果选项
         if self.reject_result_combo is not None:
             self.reject_result_combo.clear()
-            self.reject_result_combo.addItems(["驳回成功", "驳回失败"])
+            self.reject_result_combo.addItems(["-", "驳回成功", "驳回失败"])
             self.reject_result_combo.setCurrentIndex(0)
             
         # 设置日期为今天
         if self.record_date_edit:
             self.record_date_edit.setDate(QDate.currentDate())
+
+        self._configure_search_store_combo()
 
     def _connect_import_export_buttons(self):
         """连接导入导出按钮的信号和槽"""
@@ -4039,11 +4048,13 @@ class RefundManager(QMainWindow):
             widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         if self.comp_amount_edit:
-            self.comp_amount_edit.setMinimumWidth(70)
+            self.comp_amount_edit.setFixedWidth(65)
+            self.comp_amount_edit.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         if self.refund_amount_edit:
-            self.refund_amount_edit.setMinimumWidth(70)
+            self.refund_amount_edit.setFixedWidth(65)
+            self.refund_amount_edit.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         if self.notes_edit:
-            self.notes_edit.setMinimumWidth(160)
+            self.notes_edit.setMinimumWidth(260)
 
         if self.notes_edit:
             font = QFont(self.notes_edit.font())
@@ -4091,6 +4102,35 @@ class RefundManager(QMainWindow):
         placeholder = self.input_panel.findChild(QWidget, "ai_button_placeholder")
         if placeholder:
             placeholder.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+
+    def _configure_search_store_combo(self):
+        """优化搜索区店铺下拉框的可读性和弹出列表宽度。"""
+        if not hasattr(self, 'search_store_combo') or self.search_store_combo is None:
+            return
+
+        combo = self.search_store_combo
+        font = QFont(combo.font())
+        font.setPointSize(13)
+        combo.setFont(font)
+        combo.setMinimumHeight(36)
+
+        view = combo.view()
+        if view is not None:
+            view.setFont(font)
+            view.setStyleSheet(
+                "QListView { font-size: 14px; padding: 4px; }"
+                "QListView::item { min-height: 30px; padding: 4px 10px; }"
+            )
+
+        max_text_width = 0
+        font_metrics = combo.fontMetrics()
+        for index in range(combo.count()):
+            max_text_width = max(max_text_width, font_metrics.horizontalAdvance(combo.itemText(index)))
+
+        popup_width = max(combo.width() + 30, max_text_width + 56)
+        combo.setMinimumWidth(max(combo.minimumWidth(), min(popup_width - 30, 220)))
+        if view is not None:
+            view.setMinimumWidth(popup_width)
 
     def open_ai_window(self):
         """打开独立的AI分析窗口"""
@@ -4953,8 +4993,11 @@ class RefundManager(QMainWindow):
     def toggle_reject_result(self, state):
         """控制驳回结果下拉框的可用性"""
         self.reject_result_combo.setEnabled(state == Qt.Checked)
-        if state != Qt.Checked:
-            self.reject_result_combo.setCurrentIndex(0)  # 重置为默认值
+        if state == Qt.Checked:
+            if self.reject_result_combo.currentIndex() <= 0:
+                self.reject_result_combo.setCurrentIndex(1)
+        else:
+            self.reject_result_combo.setCurrentIndex(0)  # 重置为占位值
 
     def load_stores(self):
         """加载店铺列表到所有下拉框"""
@@ -4983,6 +5026,8 @@ class RefundManager(QMainWindow):
             # 搜索筛选区选择"全部"
             self.search_store_combo.setCurrentIndex(0)  # 0是"全部"选项
             # 不再同步店铺信息显示，保持两个区域独立
+
+        self._configure_search_store_combo()
         
         if self.store_combo.count() == 0:
             self.store_combo.addItem("请先添加店铺", None)
@@ -5454,6 +5499,8 @@ class RefundManager(QMainWindow):
             reject_result = ""
             if reject:
                 reject_result = self.reject_result_combo.currentText()
+                if reject_result == "-":
+                    reject_result = "驳回成功"
             
             notes = self.notes_edit.toPlainText().strip()
             
@@ -5511,6 +5558,8 @@ class RefundManager(QMainWindow):
         reject_result = ""
         if reject:
             reject_result = self.reject_result_combo.currentText()
+            if reject_result == "-":
+                reject_result = "驳回成功"
         
         notes = self.notes_edit.toPlainText().strip()
         
@@ -6228,7 +6277,9 @@ class RefundManager(QMainWindow):
         # 设置驳回状态和结果
         self.reject_check.setChecked(reject_text == "是")
         reject_result_index = self.reject_result_combo.findText(reject_result_text)
-        if reject_result_index >= 0:
+        if reject_text != "是" or reject_result_text in ("", "无", None):
+            self.reject_result_combo.setCurrentIndex(0)
+        elif reject_result_index >= 0:
             self.reject_result_combo.setCurrentIndex(reject_result_index)
         else:
             self.reject_result_combo.setCurrentIndex(0)
@@ -9530,7 +9581,7 @@ class ChartWidget(QWidget):
             filtered_counts = new_counts
         
         # 创建饼图（不显示默认标签）
-        colors = plt.cm.Set3(np.linspace(0, 1, len(filtered_reasons)))
+        colors = get_colormap_colors(plt.cm.Set3, len(filtered_reasons))
         # 当labels=None和autopct=None时，只返回2个值
         pie_result = ax.pie(filtered_counts, labels=None, autopct=None,
                            colors=colors, startangle=90)
@@ -9546,8 +9597,9 @@ class ChartWidget(QWidget):
         
         for i, (wedge, reason, count) in enumerate(zip(wedges, filtered_reasons, filtered_counts)):
             ang = (wedge.theta2 - wedge.theta1) / 2. + wedge.theta1
-            y = np.sin(np.deg2rad(ang))
-            x = np.cos(np.deg2rad(ang))
+            radians = math.radians(ang)
+            y = math.sin(radians)
+            x = math.cos(radians)
             
             # 计算百分比
             percentage = (count / total) * 100
@@ -9561,7 +9613,8 @@ class ChartWidget(QWidget):
             label_text = f"{reason}\n{count}单 ({percentage:.1f}%)"
             
             # 添加带箭头的标签
-            ax.annotate(label_text, xy=(x, y), xytext=(1.35*np.sign(x), 1.4*y),
+            x_direction = 1 if x >= 0 else -1
+            ax.annotate(label_text, xy=(x, y), xytext=(1.35 * x_direction, 1.4 * y),
                        horizontalalignment=horizontalalignment, fontsize=7, **kw)
         
         # 调整布局
@@ -9627,7 +9680,7 @@ class ChartWidget(QWidget):
                     continue
             
             # 为每个原因创建数据序列
-            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            colors = get_colormap_colors(plt.cm.tab10, len(self.REASON_LIST))
             
             for i, reason in enumerate(self.REASON_LIST):
                 amounts = []
@@ -9679,7 +9732,7 @@ class ChartWidget(QWidget):
                     continue
             
             # 为每个原因创建数据序列
-            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            colors = get_colormap_colors(plt.cm.tab10, len(self.REASON_LIST))
             
             for i, reason in enumerate(self.REASON_LIST):
                 amounts = []
@@ -9734,7 +9787,7 @@ class ChartWidget(QWidget):
                     continue
             
             # 为每个原因创建数据序列
-            colors = plt.cm.tab10(np.linspace(0, 1, len(self.REASON_LIST)))
+            colors = get_colormap_colors(plt.cm.tab10, len(self.REASON_LIST))
             
             for i, reason in enumerate(self.REASON_LIST):
                 amounts = []

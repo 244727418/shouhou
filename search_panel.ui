@@ -46,15 +46,15 @@
     </widget>
    </item>
    <item row="1" column="0">
-    <widget class="QComboBox" name="search_store_combo">
+   <widget class="QComboBox" name="search_store_combo">
      <property name="minimumSize">
       <size>
-       <width>0</width>
-       <height>30</height>
+        <width>0</width>
+        <height>36</height>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748; QComboBox::drop-down { border: none; } QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 6px solid #4A5568; }</string>
+      <string notr="true">padding: 7px 12px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 14px; color: #2D3748; QComboBox::drop-down { border: none; width: 26px; } QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #718096; width: 0; height: 0; } QComboBox::down-arrow:on { border-top: 7px solid #4A5568; }</string>
      </property>
     </widget>
    </item>
