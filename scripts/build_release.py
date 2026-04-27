@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""1.7 发布构建脚本。
+"""1.8 发布构建脚本。
 
 默认构建稳定优先的 onefile 版本；onedir 仅保留为排障备选。
 强制使用项目本地 .venv，避免误用全局 Conda 环境。
@@ -21,15 +21,15 @@ DIST_ROOT = PROJECT_ROOT / "release"
 BUILD_ROOT = PROJECT_ROOT / "build"
 VENV_PYTHON = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
 SPEC_FILES = {
-    "onedir": PROJECT_ROOT / "售后登记表_v1.7_onedir.spec",
-    "onefile": PROJECT_ROOT / "售后登记表_v1.7_onefile.spec",
+    "onedir": PROJECT_ROOT / "售后登记表_v1.8_onedir.spec",
+    "onefile": PROJECT_ROOT / "售后登记表_v1.8_onefile.spec",
 }
 ALIAS_ENV_KEY = "SHOUHOU_BUILD_ALIAS_ACTIVE"
 ALIAS_DRIVES = ("X:", "Y:", "Z:")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="构建售后登记表 1.7 发布包")
+    parser = argparse.ArgumentParser(description="构建售后登记表 1.8 发布包")
     parser.add_argument(
         "--mode",
         choices=("onedir", "onefile", "all"),
@@ -100,7 +100,7 @@ def clean_outputs():
 
 def run_pyinstaller(spec_path: Path, dist_subdir: str):
     dist_path = DIST_ROOT / dist_subdir
-    work_path = BUILD_ROOT / f"1.7_{dist_subdir}"
+    work_path = BUILD_ROOT / f"1.8_{dist_subdir}"
     dist_path.mkdir(parents=True, exist_ok=True)
     work_path.mkdir(parents=True, exist_ok=True)
 

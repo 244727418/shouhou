@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path.cwd()
-APP_NAME = "售后登记表_v1.7"
+APP_NAME = "售后登记表_v1.8"
 ENTRY_SCRIPT = str(PROJECT_ROOT / "dj.py")
 ICON_PATH = None
 
