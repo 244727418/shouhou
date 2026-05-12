@@ -143,8 +143,6 @@ QLineEdit, QComboBox, QDateEdit, QTextEdit {
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTextEdit:focus {
     border: 2px solid #EF476F;
     background-color: #FFFCF9;
-    margin-top: -1px;
-    margin-bottom: 1px;
 }
 
 /* 下拉框样式 */

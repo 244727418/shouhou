@@ -5,6 +5,8 @@ import json
 import hashlib
 import requests
 import markdown
+import gzip
+import uuid
 from datetime import datetime, timedelta
 import math
 import matplotlib
@@ -44,6 +46,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import os
 import sys
+import stat
 import subprocess  # 用于启动更新程序
 import shutil  # 用于文件操作
 import tempfile  # 用于创建临时目录
@@ -56,7 +59,7 @@ from help_dialog import HelpDialog
 # ==================== 软件版本配置 ====================
 # 【重要】每次发布新版本时，必须修改这里的版本号！
 # 版本号格式：主版本.次版本.修订号
-CURRENT_VERSION = "1.8"
+CURRENT_VERSION = "2.3.1"
 
 # GitHub仓库配置
 # 【重要】请修改为你的GitHub用户名和仓库名
@@ -332,11 +335,498 @@ class AddStoreDialog(QDialog):
         return self.store_name_edit.text().strip()
 
 # ---------------------------- 店铺基本信息设置对话框 --------------------------------
+class StoreWeeklyHistoryDialog(QDialog):
+    """店铺周数据历史记录对话框。"""
+    def __init__(self, db, store_id, store_name, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.store_id = store_id
+        self.store_name = store_name
+        self.selected_record = None
+
+        self.setWindowTitle(f"历史记录 - {store_name}")
+        self.resize(760, 420)
+
+        layout = QVBoxLayout(self)
+        title_label = QLabel(f"店铺：{store_name}")
+        title_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold;")
+        layout.addWidget(title_label)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["周范围", "上周单量", "上周销售额", "退款预算", "保存时间"])
+        for col in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(col)
+            if header_item:
+                header_item.setTextAlignment(Qt.AlignCenter)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.doubleClicked.connect(self.apply_selected_record)
+        layout.addWidget(self.table)
+
+        button_layout = QHBoxLayout()
+        self.apply_btn = QPushButton("应用到设置窗口")
+        self.delete_btn = QPushButton("删除记录")
+        self.close_btn = QPushButton("关闭")
+        self.apply_btn.clicked.connect(self.apply_selected_record)
+        self.delete_btn.clicked.connect(self.delete_selected_record)
+        self.close_btn.clicked.connect(self.reject)
+        button_layout.addStretch()
+        button_layout.addWidget(self.apply_btn)
+        button_layout.addWidget(self.delete_btn)
+        button_layout.addWidget(self.close_btn)
+        layout.addLayout(button_layout)
+
+        self.load_history()
+
+    @staticmethod
+    def _format_week_range_for_display(start_date_text, end_date_text):
+        start_date = QDate.fromString(str(start_date_text or ""), "yyyy-MM-dd")
+        end_date = QDate.fromString(str(end_date_text or ""), "yyyy-MM-dd")
+        if start_date.isValid() and end_date.isValid():
+            return f"{start_date.month()}月{start_date.day()}日 至 {end_date.month()}月{end_date.day()}日"
+        return f"{start_date_text} 至 {end_date_text}"
+
+    def load_history(self):
+        """加载当前店铺的周数据历史。"""
+        self.history_records = self.db.get_store_weekly_settings_history(self.store_id)
+        self.table.setRowCount(len(self.history_records))
+
+        for row, record in enumerate(self.history_records):
+            week_range = self._format_week_range_for_display(record['week_start_date'], record['week_end_date'])
+            values = [
+                week_range,
+                str(record['weekly_orders']),
+                f"{record['weekly_sales']:.2f}",
+                f"{record['refund_budget']:.2f}",
+                record.get('updated_at') or record.get('created_at') or "",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.UserRole, record['id'])
+                item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, col, item)
+
+        if self.history_records:
+            self.table.selectRow(0)
+
+    def _get_selected_record(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "提示", "请先选择一条历史记录")
+            return None
+
+        row = selected_rows[0].row()
+        if row < 0 or row >= len(self.history_records):
+            QMessageBox.information(self, "提示", "选择的历史记录无效")
+            return None
+
+        return self.history_records[row]
+
+    def apply_selected_record(self):
+        """确认选中的记录，并交由店铺设置窗口回填。"""
+        record = self._get_selected_record()
+        if not record:
+            return
+
+        self.selected_record = record
+        self.accept()
+
+    def delete_selected_record(self):
+        """删除选中的历史记录。"""
+        record = self._get_selected_record()
+        if not record:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除 {record['week_start_date']} 至 {record['week_end_date']} 的历史记录吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        deleted = self.db.delete_store_weekly_settings_history(record['id'], self.store_id)
+        if deleted:
+            QMessageBox.information(self, "删除完成", "历史记录已删除")
+            self.load_history()
+        else:
+            QMessageBox.warning(self, "删除失败", "未能删除选中的历史记录")
+
+
+class StoreSpecOrdersDialog(QDialog):
+    """识别并保存店铺每周规格单量。"""
+    def __init__(self, db, store_id, store_name, week_start_date, week_end_date, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.store_id = store_id
+        self.store_name = store_name
+        self.week_start_date = week_start_date
+        self.week_end_date = week_end_date
+        self.parsed_items = []
+
+        self.setWindowTitle(f"识别规格单量 - {store_name}")
+        self.resize(680, 560)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        title_label = QLabel(f"店铺：{store_name}    周期：{week_start_date} 至 {week_end_date}")
+        title_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold;")
+        layout.addWidget(title_label)
+
+        tip_label = QLabel("粘贴格式：左边规格文字，右边单数；规格编码只取左侧开头数字，无法识别数字编码的行会忽略。")
+        tip_label.setStyleSheet("color: #6c757d; font-size: 12px;")
+        layout.addWidget(tip_label)
+
+        self.input_edit = QTextEdit()
+        self.input_edit.setPlaceholderText("例如：\n605\t719\n705\t330\n805礼盒\t69")
+        self.input_edit.setMinimumHeight(160)
+        layout.addWidget(self.input_edit)
+
+        action_layout = QHBoxLayout()
+        self.parse_btn = QPushButton("识别预览")
+        self.save_btn = QPushButton("保存识别结果")
+        self.history_btn = QPushButton("历史记录")
+        self.close_btn = QPushButton("关闭")
+        StoreSettingsDialog._apply_history_button_style(self.parse_btn)
+        StoreSettingsDialog._apply_history_button_style(self.save_btn)
+        StoreSettingsDialog._apply_history_button_style(self.history_btn)
+        self.close_btn.setMinimumSize(80, 35)
+        self.parse_btn.clicked.connect(self.parse_input)
+        self.save_btn.clicked.connect(self.save_result)
+        self.history_btn.clicked.connect(self.open_history_records)
+        self.close_btn.clicked.connect(self.reject)
+        action_layout.addStretch()
+        action_layout.addWidget(self.parse_btn)
+        action_layout.addWidget(self.save_btn)
+        action_layout.addWidget(self.history_btn)
+        action_layout.addWidget(self.close_btn)
+        layout.addLayout(action_layout)
+
+        self.summary_label = QLabel("尚未识别")
+        self.summary_label.setStyleSheet("color: #374151; font-size: 12px;")
+        layout.addWidget(self.summary_label)
+
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["规格编码", "单数"])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        layout.addWidget(self.table, 1)
+
+        existing_items = self.db.get_store_weekly_spec_orders_by_week(store_id, week_start_date)
+        if existing_items:
+            self.input_edit.setPlainText("\n".join(
+                f"{item['spec_code']}\t{item['order_count']}" for item in existing_items
+            ))
+            self.parse_input(show_message=False)
+
+    @staticmethod
+    def parse_spec_orders_text(text):
+        merged = {}
+        invalid_lines = []
+
+        for line_no, raw_line in enumerate((text or "").splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            match = re.match(r"^(.+?)\s+(\d+)\s*$", line)
+            if not match:
+                invalid_lines.append((line_no, raw_line))
+                continue
+
+            spec_text = match.group(1).strip()
+            order_count = int(match.group(2))
+            spec_match = re.match(r"^(\d+)", spec_text)
+            if not spec_match:
+                invalid_lines.append((line_no, raw_line))
+                continue
+
+            spec_code = spec_match.group(1)
+            merged[spec_code] = merged.get(spec_code, 0) + order_count
+
+        items = [
+            {"spec_code": spec_code, "order_count": merged[spec_code]}
+            for spec_code in sorted(merged.keys(), key=lambda value: (-merged[value], value))
+        ]
+        return items, invalid_lines
+
+    def parse_input(self, show_message=True):
+        items, invalid_lines = self.parse_spec_orders_text(self.input_edit.toPlainText())
+        self.parsed_items = items
+        self.table.setRowCount(len(items))
+
+        for row, item in enumerate(items):
+            spec_item = QTableWidgetItem(item["spec_code"])
+            count_item = QTableWidgetItem(str(item["order_count"]))
+            spec_item.setTextAlignment(Qt.AlignCenter)
+            count_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 0, spec_item)
+            self.table.setItem(row, 1, count_item)
+
+        total_orders = sum(item["order_count"] for item in items)
+        invalid_text = f"，未识别 {len(invalid_lines)} 行" if invalid_lines else ""
+        self.summary_label.setText(f"识别到 {len(items)} 个规格，合计 {total_orders} 单{invalid_text}")
+
+        if invalid_lines and show_message:
+            preview = "\n".join(f"第{line_no}行：{raw_line}" for line_no, raw_line in invalid_lines[:8])
+            if len(invalid_lines) > 8:
+                preview += f"\n... 还有 {len(invalid_lines) - 8} 行"
+            QMessageBox.warning(self, "存在未识别行", f"以下行未按“规格编码 单数”格式识别：\n{preview}")
+
+        if not items and show_message:
+            QMessageBox.information(self, "提示", "没有识别到有效的规格单量数据")
+
+        return items, invalid_lines
+
+    def save_result(self):
+        items, invalid_lines = self.parse_input(show_message=False)
+        if not items:
+            QMessageBox.information(self, "提示", "没有可保存的规格单量数据")
+            return
+
+        if invalid_lines:
+            reply = QMessageBox.question(
+                self,
+                "存在未识别行",
+                f"有 {len(invalid_lines)} 行未识别，是否只保存已识别的 {len(items)} 个规格？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        existing_items = self.db.get_store_weekly_spec_orders_by_week(self.store_id, self.week_start_date)
+        if existing_items:
+            reply = QMessageBox.question(
+                self,
+                "覆盖规格单量",
+                f"{self.store_name} 已存在 {self.week_start_date} 至 {self.week_end_date} 的规格单量记录，是否覆盖？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        saved_count = self.db.save_store_weekly_spec_orders(
+            self.store_id,
+            self.store_name,
+            self.week_start_date,
+            self.week_end_date,
+            items
+        )
+        QMessageBox.information(
+            self,
+            "保存完成",
+            f"已保存 {len(items)} 个规格，合计 {sum(item['order_count'] for item in items)} 单"
+        )
+        self.accept()
+
+    def open_history_records(self):
+        """打开规格单量历史记录窗口。"""
+        dialog = StoreSpecOrdersHistoryDialog(self.db, self.store_id, self.store_name, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_items:
+            self.apply_history_items(dialog.selected_summary, dialog.selected_items)
+
+    def apply_history_items(self, summary, items):
+        """把历史规格单量回填到识别窗口。"""
+        self.input_edit.setPlainText("\n".join(
+            f"{item['spec_code']}\t{item['order_count']}" for item in items
+        ))
+        week_start = summary.get('week_start_date', '') if summary else ''
+        week_end = summary.get('week_end_date', '') if summary else ''
+        if week_start and week_end:
+            self.week_start_date = week_start
+            self.week_end_date = week_end
+            self.setWindowTitle(f"识别规格单量 - {self.store_name}")
+        self.parse_input(show_message=False)
+        QMessageBox.information(self, "应用完成", "历史规格单量已填入识别窗口，可确认后重新保存")
+
+
+class StoreSpecOrdersHistoryDialog(QDialog):
+    """按自然周查看店铺规格单量历史。"""
+    def __init__(self, db, store_id, store_name, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.store_id = store_id
+        self.store_name = store_name
+        self.week_summaries = []
+        self.current_items = []
+        self.selected_summary = None
+        self.selected_items = []
+
+        self.setWindowTitle(f"规格单量历史记录 - {store_name}")
+        self.resize(760, 560)
+
+        layout = QVBoxLayout(self)
+        title_label = QLabel(f"店铺：{store_name}")
+        title_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 14px; font-weight: bold;")
+        layout.addWidget(title_label)
+
+        self.week_table = QTableWidget(0, 4)
+        self.week_table.setHorizontalHeaderLabels(["周范围", "规格数", "总单数", "保存时间"])
+        self.week_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.week_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.week_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.week_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.week_table.verticalHeader().setVisible(False)
+        self.week_table.currentCellChanged.connect(self.on_week_changed)
+        self.week_table.doubleClicked.connect(self.apply_selected_week)
+        layout.addWidget(self.week_table)
+
+        detail_label = QLabel("规格明细")
+        detail_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold;")
+        layout.addWidget(detail_label)
+
+        self.detail_table = QTableWidget(0, 2)
+        self.detail_table.setHorizontalHeaderLabels(["规格编码", "单数"])
+        self.detail_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.detail_table.verticalHeader().setVisible(False)
+        layout.addWidget(self.detail_table, 1)
+
+        button_layout = QHBoxLayout()
+        self.apply_btn = QPushButton("应用到识别窗口")
+        self.delete_btn = QPushButton("删除本周记录")
+        self.close_btn = QPushButton("关闭")
+        self.apply_btn.clicked.connect(self.apply_selected_week)
+        self.delete_btn.clicked.connect(self.delete_selected_week)
+        self.close_btn.clicked.connect(self.reject)
+        button_layout.addStretch()
+        button_layout.addWidget(self.apply_btn)
+        button_layout.addWidget(self.delete_btn)
+        button_layout.addWidget(self.close_btn)
+        layout.addLayout(button_layout)
+
+        self.load_history()
+
+    @staticmethod
+    def _format_week_range_for_display(start_date_text, end_date_text):
+        return StoreWeeklyHistoryDialog._format_week_range_for_display(start_date_text, end_date_text)
+
+    def load_history(self):
+        """加载按周汇总的规格单量历史。"""
+        self.week_summaries = self.db.get_store_weekly_spec_orders_history_summary(self.store_id)
+        self.week_table.setRowCount(len(self.week_summaries))
+
+        for row, summary in enumerate(self.week_summaries):
+            week_range = self._format_week_range_for_display(
+                summary.get('week_start_date', ''),
+                summary.get('week_end_date', '')
+            )
+            values = [
+                week_range,
+                str(summary.get('spec_count', 0)),
+                str(summary.get('total_orders', 0)),
+                summary.get('updated_at') or summary.get('created_at') or "",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.week_table.setItem(row, col, item)
+
+        if self.week_summaries:
+            self.week_table.selectRow(0)
+            self.load_week_detail(0)
+        else:
+            self.detail_table.setRowCount(0)
+
+    def on_week_changed(self, current_row, current_column, previous_row, previous_column):
+        self.load_week_detail(current_row)
+
+    def load_week_detail(self, row):
+        """加载选中周的规格明细。"""
+        if row < 0 or row >= len(self.week_summaries):
+            self.current_items = []
+            self.detail_table.setRowCount(0)
+            return
+
+        summary = self.week_summaries[row]
+        self.current_items = self.db.get_store_weekly_spec_orders_by_week(
+            self.store_id,
+            summary.get('week_start_date', '')
+        )
+        self.detail_table.setRowCount(len(self.current_items))
+        for detail_row, item in enumerate(self.current_items):
+            spec_item = QTableWidgetItem(str(item.get('spec_code', '')))
+            count_item = QTableWidgetItem(str(item.get('order_count', 0)))
+            spec_item.setTextAlignment(Qt.AlignCenter)
+            count_item.setTextAlignment(Qt.AlignCenter)
+            self.detail_table.setItem(detail_row, 0, spec_item)
+            self.detail_table.setItem(detail_row, 1, count_item)
+
+    def _get_selected_summary(self):
+        selected_rows = self.week_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "提示", "请先选择一个周期")
+            return None
+
+        row = selected_rows[0].row()
+        if row < 0 or row >= len(self.week_summaries):
+            QMessageBox.information(self, "提示", "选择的周期无效")
+            return None
+
+        return self.week_summaries[row]
+
+    def apply_selected_week(self):
+        """选择一周历史记录并回填到识别窗口。"""
+        summary = self._get_selected_summary()
+        if not summary:
+            return
+
+        items = self.db.get_store_weekly_spec_orders_by_week(
+            self.store_id,
+            summary.get('week_start_date', '')
+        )
+        if not items:
+            QMessageBox.information(self, "提示", "当前周期没有规格明细")
+            return
+
+        self.selected_summary = summary
+        self.selected_items = items
+        self.accept()
+
+    def delete_selected_week(self):
+        """删除选中自然周的规格单量历史。"""
+        summary = self._get_selected_summary()
+        if not summary:
+            return
+
+        week_start = summary.get('week_start_date', '')
+        week_end = summary.get('week_end_date', '')
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除 {week_start} 至 {week_end} 的规格单量历史记录吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        deleted = self.db.delete_store_weekly_spec_orders_by_week(self.store_id, week_start)
+        if deleted:
+            QMessageBox.information(self, "删除完成", "规格单量历史记录已删除")
+            self.load_history()
+        else:
+            QMessageBox.warning(self, "删除失败", "未能删除选中的规格单量历史记录")
+
+
 class StoreSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
         loadUi(get_resource_path("dialog_store_settings.ui"), self)
+        self.resize(760, max(self.height(), 430))
+        self._setup_week_history_controls()
         self.setup_connections()
 
     def setup_connections(self):
@@ -345,11 +835,279 @@ class StoreSettingsDialog(QDialog):
         self.cancel_btn.clicked.connect(self.reject)
         self.refund_budget_amount_edit.textChanged.connect(self.on_amount_changed)
         self.refund_budget_percent_edit.textChanged.connect(self.on_percent_changed)
+        self.history_week_start_edit.dateChanged.connect(self.on_history_week_changed)
+        self.save_history_btn.clicked.connect(self.save_current_data_to_history)
+        self.history_records_btn.clicked.connect(self.open_history_records)
+        self.spec_orders_btn.clicked.connect(self.open_spec_orders_recognizer)
+        if hasattr(self.parent, 'search_store_combo') and self.parent.search_store_combo:
+            self.parent.search_store_combo.currentTextChanged.connect(self._update_current_store_scope_label)
+        if hasattr(self.parent, 'store_combo') and self.parent.store_combo:
+            self.parent.store_combo.currentTextChanged.connect(self._update_current_store_scope_label)
+
+    def _setup_week_history_controls(self):
+        """在UI文件加载后动态添加周数据历史控件。"""
+        self.history_week_start_edit = QDateEdit()
+        self.history_week_start_edit.setCalendarPopup(True)
+        self.history_week_start_edit.setDisplayFormat("yyyy-MM-dd")
+        self.history_week_start_edit.setMinimumDate(QDate(2000, 1, 1))
+        self.history_week_start_edit.setMaximumDate(QDate(2100, 12, 31))
+        self.history_week_end_label = QLabel()
+        self.history_week_tip_label = QLabel("选择该周任意日期，保存时按自然周一至周日记录")
+        self.history_week_tip_label.setStyleSheet("color: #6c757d; font-size: 12px;")
+
+        week_layout = QHBoxLayout()
+        week_layout.setSpacing(8)
+        week_layout.addWidget(self.history_week_start_edit)
+        week_layout.addWidget(self.history_week_end_label)
+        week_layout.addWidget(self.history_week_tip_label)
+
+        form_layout = self.findChild(QFormLayout, "formLayout")
+        if form_layout:
+            form_layout.addRow("数据所属周：", week_layout)
+            self.current_store_scope_label = QLabel()
+            self.current_store_scope_label.setWordWrap(True)
+            self.current_store_scope_label.setStyleSheet("color: #1F2937; font-size: 12px; font-weight: bold;")
+            form_layout.addRow("当前范围：", self.current_store_scope_label)
+
+        self.save_history_btn = QPushButton("保存到历史记录")
+        self.history_records_btn = QPushButton("历史记录")
+        self.spec_orders_btn = QPushButton("识别规格单量")
+        self._apply_history_button_style(self.save_history_btn)
+        self._apply_history_button_style(self.history_records_btn)
+        self._apply_history_button_style(self.spec_orders_btn)
+
+        button_layout = self.findChild(QHBoxLayout, "horizontalLayout_buttons")
+        if button_layout:
+            insert_index = max(0, button_layout.count() - 2)
+            button_layout.insertWidget(insert_index, self.save_history_btn)
+            button_layout.insertWidget(insert_index + 1, self.history_records_btn)
+            button_layout.insertWidget(insert_index + 2, self.spec_orders_btn)
+
+        self.history_week_start_edit.setDate(self._default_previous_week_start())
+        self.on_history_week_changed(self.history_week_start_edit.date())
+        self._update_history_buttons_state()
+        self._update_current_store_scope_label()
+
+    @staticmethod
+    def _default_previous_week_start():
+        today = QDate.currentDate()
+        current_week_monday = today.addDays(1 - today.dayOfWeek())
+        return current_week_monday.addDays(-7)
+
+    @staticmethod
+    def _normalize_week_start(date):
+        return date.addDays(1 - date.dayOfWeek())
+
+    @staticmethod
+    def _apply_history_button_style(button):
+        button.setCursor(Qt.PointingHandCursor)
+        button.setMinimumSize(108, 35)
+        button.setStyleSheet("""
+            QPushButton {
+                font-family: 'Microsoft YaHei';
+                font-size: 13px;
+                font-weight: bold;
+                color: white;
+                background-color: #2563EB;
+                border: 1px solid #1D4ED8;
+                border-radius: 6px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+                border-color: #1E40AF;
+            }
+            QPushButton:pressed {
+                background-color: #1E40AF;
+                border-color: #1E3A8A;
+                padding-top: 7px;
+                padding-bottom: 5px;
+            }
+            QPushButton:disabled {
+                color: #F3F4F6;
+                background-color: #9CA3AF;
+                border-color: #6B7280;
+            }
+        """)
+
+    def on_history_week_changed(self, date):
+        week_start = self._normalize_week_start(date)
+        if week_start != date:
+            blocker = QSignalBlocker(self.history_week_start_edit)
+            self.history_week_start_edit.setDate(week_start)
+            del blocker
+        week_end = week_start.addDays(6)
+        self.history_week_end_label.setText(f"至 {week_end.toString('yyyy-MM-dd')}")
+
+    def _get_current_store_id_name(self):
+        search_store = ""
+        if hasattr(self.parent, 'search_store_combo') and self.parent.search_store_combo:
+            search_store = self.parent.search_store_combo.currentText().strip()
+
+        if search_store:
+            if search_store == "全部":
+                return None, search_store, "all"
+            store_id = self.parent.db.get_store_id_by_name(search_store)
+            if store_id:
+                return store_id, search_store, "search"
+            return None, search_store, "search"
+
+        input_store = ""
+        if hasattr(self.parent, 'store_combo') and self.parent.store_combo:
+            input_store = self.parent.store_combo.currentText().strip()
+
+        invalid_names = ("", "全部", "请先添加店铺")
+        if input_store not in invalid_names:
+            store_id = self.parent.db.get_store_id_by_name(input_store)
+            if store_id:
+                return store_id, input_store, "input"
+
+        return None, input_store, None
+
+    def _get_current_store_scope_text(self):
+        store_id, store_name, store_source = self._get_current_store_id_name()
+        if store_id and store_source == "search":
+            return f"搜索筛选区店铺 - {store_name}"
+        if store_id and store_source == "input":
+            return f"信息录入区店铺 - {store_name}"
+        if store_source == "all":
+            return "全部店铺（请先在搜索筛选区选择具体店铺后再保存/识别规格单量）"
+        display_name = store_name or "未选择店铺"
+        return f"{display_name}（请先选择具体店铺后再保存/识别规格单量）"
+
+    def _update_current_store_scope_label(self, *args):
+        if hasattr(self, 'current_store_scope_label') and self.current_store_scope_label:
+            self.current_store_scope_label.setText(self._get_current_store_scope_text())
+
+    def _update_history_buttons_state(self):
+        self.save_history_btn.setEnabled(True)
+        self.history_records_btn.setEnabled(True)
+        self.spec_orders_btn.setEnabled(True)
+        self.save_history_btn.setToolTip("保存当前填写的周单量、销售额和退款预算到历史记录")
+        self.history_records_btn.setToolTip("查看历史周数据，并可回填到当前设置窗口")
+        self.spec_orders_btn.setToolTip("粘贴识别每个规格编码本周卖出多少单，并保存到历史记录")
+
+    def _read_form_settings(self):
+        """读取当前窗口录入值，沿用保存设置的数字校验规则。"""
+        weekly_orders = int(self.daily_orders_edit.text()) if self.daily_orders_edit.text() else 0
+        weekly_sales = float(self.daily_sales_edit.text()) if self.daily_sales_edit.text() else 0.0
+
+        if self.refund_budget_amount_edit.text():
+            refund_budget = float(self.refund_budget_amount_edit.text())
+        elif self.refund_budget_percent_edit.text():
+            percent = float(self.refund_budget_percent_edit.text())
+            refund_budget = (percent / 100) * self._weekly_to_daily_avg(weekly_sales)
+        else:
+            refund_budget = 0.0
+
+        return weekly_orders, weekly_sales, refund_budget
+
+    def save_current_data_to_history(self):
+        """把当前窗口填写的周数据保存为店铺历史记录。"""
+        store_id, store_name, store_source = self._get_current_store_id_name()
+        if not store_id:
+            QMessageBox.information(self, "提示", "当前范围是全部店铺，请先在搜索筛选区选择具体店铺，再保存历史记录")
+            self._update_current_store_scope_label()
+            return
+
+        try:
+            weekly_orders, weekly_sales, refund_budget = self._read_form_settings()
+        except ValueError:
+            QMessageBox.warning(self, "输入错误", "请输入有效的数字")
+            return
+
+        week_start = self._normalize_week_start(self.history_week_start_edit.date())
+        week_end = week_start.addDays(6)
+        week_start_text = week_start.toString("yyyy-MM-dd")
+        week_end_text = week_end.toString("yyyy-MM-dd")
+
+        existing = self.parent.db.get_store_weekly_settings_history_by_week(store_id, week_start_text)
+        if existing:
+            reply = QMessageBox.question(
+                self,
+                "覆盖历史记录",
+                f"{store_name} 已存在 {week_start_text} 至 {week_end_text} 的历史记录，是否覆盖？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        self.parent.db.save_store_weekly_settings_history(
+            store_id,
+            store_name,
+            week_start_text,
+            week_end_text,
+            weekly_orders,
+            weekly_sales,
+            refund_budget
+        )
+        source_text = "信息录入区" if store_source == "input" else "搜索筛选区"
+        QMessageBox.information(
+            self,
+            "保存完成",
+            f"已按{source_text}店铺【{store_name}】保存 {week_start_text} 至 {week_end_text} 的历史记录"
+        )
+
+    def open_history_records(self):
+        """打开店铺周数据历史记录窗口。"""
+        store_id, store_name, store_source = self._get_current_store_id_name()
+        if not store_id:
+            QMessageBox.information(self, "提示", "当前范围是全部店铺，请先在搜索筛选区选择具体店铺，再查看历史记录")
+            self._update_current_store_scope_label()
+            return
+
+        dialog = StoreWeeklyHistoryDialog(self.parent.db, store_id, store_name, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_record:
+            self.apply_history_record(dialog.selected_record)
+
+    def open_spec_orders_recognizer(self):
+        """打开规格单量识别窗口。"""
+        store_id, store_name, store_source = self._get_current_store_id_name()
+        if not store_id:
+            QMessageBox.information(self, "提示", "当前范围是全部店铺，请先在搜索筛选区选择具体店铺，再识别规格单量")
+            self._update_current_store_scope_label()
+            return
+
+        week_start = self._normalize_week_start(self.history_week_start_edit.date())
+        week_end = week_start.addDays(6)
+        dialog = StoreSpecOrdersDialog(
+            self.parent.db,
+            store_id,
+            store_name,
+            week_start.toString("yyyy-MM-dd"),
+            week_end.toString("yyyy-MM-dd"),
+            self
+        )
+        dialog.exec_()
+
+    def apply_history_record(self, record):
+        """把历史记录回填到当前设置窗口，不直接保存到数据库。"""
+        self.daily_orders_edit.setText(str(record.get('weekly_orders', 0)))
+        self.daily_sales_edit.setText(str(record.get('weekly_sales', 0.0)))
+        self.refund_budget_amount_edit.setText(str(record.get('refund_budget', 0.0)))
+        daily_avg_sales = self._weekly_to_daily_avg(record.get('weekly_sales', 0.0))
+        if daily_avg_sales > 0:
+            percent = (self._safe_float(record.get('refund_budget', 0.0)) / daily_avg_sales) * 100
+            self.refund_budget_percent_edit.setText(f"{percent:.2f}")
+        else:
+            self.refund_budget_percent_edit.clear()
+        week_start = QDate.fromString(record.get('week_start_date', ''), "yyyy-MM-dd")
+        if week_start.isValid():
+            self.history_week_start_edit.setDate(week_start)
+        QMessageBox.information(self, "应用完成", "历史记录已填入设置窗口，请确认后点击“保存设置”生效")
 
     @staticmethod
     def _weekly_to_daily_avg(value):
         """将用户录入的7天总值换算为日均值。"""
         return value / 7 if value else 0.0
+
+    @staticmethod
+    def _safe_float(value):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
 
     def on_amount_changed(self, text):
         """金额输入变化时自动计算百分比"""
@@ -384,17 +1142,7 @@ class StoreSettingsDialog(QDialog):
         """保存设置"""
         try:
             # 保持存储字段不变，但录入含义改为7天总值
-            daily_orders = int(self.daily_orders_edit.text()) if self.daily_orders_edit.text() else 0
-            daily_sales = float(self.daily_sales_edit.text()) if self.daily_sales_edit.text() else 0.0
-            
-            # 获取退款预算（优先使用金额输入）
-            if self.refund_budget_amount_edit.text():
-                refund_budget = float(self.refund_budget_amount_edit.text())
-            elif self.refund_budget_percent_edit.text():
-                percent = float(self.refund_budget_percent_edit.text())
-                refund_budget = (percent / 100) * self._weekly_to_daily_avg(daily_sales)
-            else:
-                refund_budget = 0.0
+            daily_orders, daily_sales, refund_budget = self._read_form_settings()
             
             # 保存到主窗口
             self.parent.store_settings = {
@@ -2031,12 +2779,312 @@ class CustomItemDelegate(QItemDelegate):
             self.parent.table.setCurrentCell(row, index.column())
 
 # ---------------------------- 数据库操作类 ---------------------------------
+SYNC_TABLES = {
+    'stores': {
+        'key': 'id',
+        'columns': ['store_name', 'color', 'estimated_orders', 'daily_orders', 'daily_sales', 'refund_budget'],
+        'unique': ['store_name'],
+    },
+    'refund_records': {
+        'key': 'id',
+        'columns': [
+            'store_id', 'order_no', 'spec_name', 'spec_code', 'reason', 'real_refund_reason',
+            'real_refund_reason_detail', 'real_refund_reason_updated_at', 'real_refund_reason_note_hash',
+            'quality_refund_reason', 'quality_not_cancelled_reason', 'quality_refund_reason_detail',
+            'quality_refund_reason_updated_at', 'quality_refund_reason_note_hash', 'refund_amount',
+            'cancel', 'compensate', 'comp_amount', 'reject', 'reject_result', 'notes',
+            'order_status', 'after_sale_status', 'refund_apply_time', 'refund_agree_time', 'record_date'
+        ],
+        'store_ref': 'store_id',
+        'unique': ['store_id', 'order_no'],
+    },
+    'global_settings': {
+        'key': 'id',
+        'columns': ['setting_key', 'setting_value'],
+        'unique': ['setting_key'],
+    },
+    'window_settings': {
+        'key': 'id',
+        'columns': ['setting_key', 'setting_value'],
+        'unique': ['setting_key'],
+    },
+    'ai_summary_history': {
+        'key': 'id',
+        'columns': ['filter_summary', 'snapshot_json', 'created_at'],
+    },
+    'real_refund_reason_categories': {
+        'key': 'id',
+        'columns': ['category_name', 'keywords_text', 'status', 'sort_order', 'created_at', 'updated_at'],
+        'unique': ['category_name'],
+    },
+    'quality_not_cancelled_reason_categories': {
+        'key': 'id',
+        'columns': ['category_name', 'status', 'sort_order', 'created_at', 'updated_at'],
+        'unique': ['category_name'],
+    },
+    'reject_countdown': {
+        'key': 'id',
+        'columns': ['order_no', 'store_name', 'current_round', 'end_time', 'created_at'],
+        'unique': ['order_no'],
+    },
+    'store_weekly_settings_history': {
+        'key': 'id',
+        'columns': [
+            'store_id', 'store_name_snapshot', 'week_start_date', 'week_end_date',
+            'weekly_orders', 'weekly_sales', 'refund_budget', 'created_at', 'updated_at'
+        ],
+        'store_ref': 'store_id',
+        'unique': ['store_id', 'week_start_date'],
+    },
+    'store_weekly_spec_orders': {
+        'key': 'id',
+        'columns': [
+            'store_id', 'store_name_snapshot', 'week_start_date', 'week_end_date',
+            'spec_code', 'order_count', 'created_at', 'updated_at'
+        ],
+        'store_ref': 'store_id',
+        'unique': ['store_id', 'week_start_date', 'spec_code'],
+    },
+}
+
+
+def utc_now_text():
+    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+class CloudSyncError(Exception):
+    pass
+
+
+class CloudSyncService:
+    MANIFEST_NAME = 'manifest.json'
+    REFUND_RECORDS_INDEX_NAME = 'index/refund_records.json.gz'
+    REFUND_RECORDS_SNAPSHOT_NAME = 'snapshot/refund_records.json.gz'
+
+    def __init__(self, db, config):
+        self.db = db
+        self.config = config or {}
+        self.prefix = self._normalize_prefix(self.config.get('prefix') or 'shouhou-sync/')
+        self.client = self._create_client()
+
+    @staticmethod
+    def _normalize_prefix(prefix):
+        prefix = str(prefix or 'shouhou-sync/').strip().strip('/')
+        return f"{prefix}/" if prefix else ''
+
+    def _create_client(self):
+        try:
+            from qcloud_cos import CosConfig, CosS3Client
+        except Exception as exc:
+            raise CloudSyncError("缺少腾讯云 COS SDK，请先安装 cos-python-sdk-v5。") from exc
+
+        for field in ('secret_id', 'secret_key', 'bucket', 'region'):
+            if not str(self.config.get(field) or '').strip():
+                raise CloudSyncError(f"请先填写 {field}")
+
+        cos_config = CosConfig(
+            Region=self.config['region'].strip(),
+            SecretId=self.config['secret_id'].strip(),
+            SecretKey=self.config['secret_key'].strip(),
+            Scheme='https',
+        )
+        return CosS3Client(cos_config)
+
+    def _key(self, name):
+        return f"{self.prefix}{name}"
+
+    def test_connection(self):
+        self.client.head_bucket(Bucket=self.config['bucket'].strip())
+        return True
+
+    def _load_manifest(self):
+        try:
+            response = self.client.get_object(
+                Bucket=self.config['bucket'].strip(),
+                Key=self._key(self.MANIFEST_NAME),
+            )
+            data = response['Body'].get_raw_stream().read()
+            return json.loads(data.decode('utf-8'))
+        except Exception as exc:
+            status_code = getattr(exc, 'get_status_code', lambda: '')()
+            error_code = getattr(exc, 'get_error_code', lambda: '')()
+            if str(status_code) == '404' or error_code in ('NoSuchKey', 'NoSuchResource'):
+                return {'version': 1, 'changes': [], 'updated_at': None}
+            raise
+
+    def _save_manifest(self, manifest):
+        manifest['version'] = 1
+        manifest['updated_at'] = utc_now_text()
+        body = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
+        self.client.put_object(Bucket=self.config['bucket'].strip(), Key=self._key(self.MANIFEST_NAME), Body=body)
+
+    def _load_refund_records_index(self):
+        try:
+            response = self.client.get_object(
+                Bucket=self.config['bucket'].strip(),
+                Key=self._key(self.REFUND_RECORDS_INDEX_NAME),
+            )
+            compressed = response['Body'].get_raw_stream().read()
+            return json.loads(gzip.decompress(compressed).decode('utf-8'))
+        except Exception as exc:
+            status_code = getattr(exc, 'get_status_code', lambda: '')()
+            error_code = getattr(exc, 'get_error_code', lambda: '')()
+            if str(status_code) == '404' or error_code in ('NoSuchKey', 'NoSuchResource'):
+                return None
+            raise
+
+    def _load_refund_records_snapshot(self):
+        try:
+            response = self.client.get_object(
+                Bucket=self.config['bucket'].strip(),
+                Key=self._key(self.REFUND_RECORDS_SNAPSHOT_NAME),
+            )
+            compressed = response['Body'].get_raw_stream().read()
+            return json.loads(gzip.decompress(compressed).decode('utf-8'))
+        except Exception as exc:
+            status_code = getattr(exc, 'get_status_code', lambda: '')()
+            error_code = getattr(exc, 'get_error_code', lambda: '')()
+            if str(status_code) == '404' or error_code in ('NoSuchKey', 'NoSuchResource'):
+                return None
+            raise
+
+    def _save_refund_records_index(self):
+        index = self.db.export_refund_records_cloud_index()
+        body = gzip.compress(json.dumps(index, ensure_ascii=False).encode('utf-8'))
+        self.client.put_object(
+            Bucket=self.config['bucket'].strip(),
+            Key=self._key(self.REFUND_RECORDS_INDEX_NAME),
+            Body=body,
+        )
+        return index
+
+    def _save_refund_records_snapshot(self):
+        snapshot = self.db.export_refund_records_cloud_snapshot()
+        body = gzip.compress(json.dumps(snapshot, ensure_ascii=False).encode('utf-8'))
+        self.client.put_object(
+            Bucket=self.config['bucket'].strip(),
+            Key=self._key(self.REFUND_RECORDS_SNAPSHOT_NAME),
+            Body=body,
+        )
+        return snapshot
+
+    def upload_incremental(self):
+        self.db.conn.commit()
+        dedupe_count = self.db.dedupe_refund_records_by_store_order()
+        config = self.db.load_cloud_sync_config()
+        since = config.get('last_upload_at') or ''
+        package = self.db.export_sync_changes(since)
+        row_count = sum(len(items) for items in package['tables'].values())
+        change_name = None
+
+        manifest = self._load_manifest()
+        if row_count > 0:
+            timestamp = utc_now_text().replace(':', '').replace('.', '')
+            change_name = f"changes/{timestamp}-{package['device_id']}.json.gz"
+            body = gzip.compress(json.dumps(package, ensure_ascii=False).encode('utf-8'))
+            self.client.put_object(Bucket=self.config['bucket'].strip(), Key=self._key(change_name), Body=body)
+
+            changes = manifest.setdefault('changes', [])
+            changes.append({
+                'key': change_name,
+                'device_id': package['device_id'],
+                'created_at': package['created_at'],
+                'row_count': row_count,
+            })
+            changes.sort(key=lambda item: item.get('created_at') or '')
+            manifest['latest_change_at'] = package['created_at']
+
+        index = self._save_refund_records_index()
+        snapshot = self._save_refund_records_snapshot()
+        manifest['refund_records_index_at'] = index.get('created_at')
+        manifest['refund_records_snapshot_at'] = snapshot.get('created_at')
+        manifest['refund_records_index_count'] = len(index.get('records', []))
+        manifest['refund_records_snapshot_count'] = len(snapshot.get('records', []))
+        self._save_manifest(manifest)
+        if row_count > 0:
+            self.db.update_cloud_sync_state(last_upload_at=package['created_at'])
+        return {
+            'uploaded': row_count,
+            'key': change_name,
+            'deduped': dedupe_count,
+            'index_count': len(index.get('records', [])),
+            'snapshot_count': len(snapshot.get('records', [])),
+        }
+
+    def download_incremental(self):
+        manifest = self._load_manifest()
+        applied = set(self.db.get_applied_cloud_change_keys())
+        current_device_id = self.db.get_cloud_device_id()
+        downloaded = 0
+        applied_count = 0
+        latest_time = None
+
+        for change in sorted(manifest.get('changes', []), key=lambda item: item.get('created_at') or ''):
+            key = change.get('key')
+            if not key or key in applied:
+                continue
+            if change.get('device_id') == current_device_id:
+                self.db.mark_cloud_change_applied(key, change.get('created_at') or utc_now_text(), 0)
+                continue
+
+            response = self.client.get_object(Bucket=self.config['bucket'].strip(), Key=self._key(key))
+            compressed = response['Body'].get_raw_stream().read()
+            package = json.loads(gzip.decompress(compressed).decode('utf-8'))
+            applied_rows = self.db.apply_sync_package(package)
+            self.db.mark_cloud_change_applied(key, change.get('created_at') or package.get('created_at') or utc_now_text(), applied_rows)
+            downloaded += applied_rows
+            applied_count += 1
+            latest_time = change.get('created_at') or latest_time
+
+        if latest_time:
+            self.db.update_cloud_sync_state(last_download_at=latest_time)
+        cloud_index = self._load_refund_records_index()
+        cloud_snapshot = self._load_refund_records_snapshot()
+        snapshot_restored = self.db.apply_refund_records_cloud_snapshot(cloud_snapshot) if cloud_snapshot else 0
+        cloud_missing_deleted = (
+            self.db.delete_refund_records_missing_from_cloud_index(cloud_index)
+            if cloud_index and cloud_snapshot
+            else 0
+        )
+        dedupe_count = self.db.dedupe_refund_records_by_store_order(cloud_index)
+        return {
+            'downloaded': downloaded,
+            'packages': applied_count,
+            'snapshot_restored': snapshot_restored,
+            'cloud_missing_deleted': cloud_missing_deleted,
+            'deduped': dedupe_count,
+            'index_found': cloud_index is not None,
+            'snapshot_found': cloud_snapshot is not None,
+        }
+
+
 class Database:
     def __init__(self, db_file='refund_data.db'):
         # 使用用户本地的数据文件，不打包进exe
         self.db_file = db_file
         self.conn = None
+        self._ensure_database_file_writable()
         self.init_db()
+
+    def _ensure_database_file_writable(self):
+        """确保数据库文件和所在目录可写，避免启动迁移时报只读数据库。"""
+        db_path = os.path.abspath(self.db_file)
+        db_dir = os.path.dirname(db_path) or os.getcwd()
+
+        if not os.access(db_dir, os.W_OK):
+            raise RuntimeError(f"数据库目录不可写：{db_dir}")
+
+        if not os.path.exists(db_path):
+            return
+
+        mode = os.stat(db_path).st_mode
+        if mode & stat.S_IWRITE:
+            return
+
+        try:
+            os.chmod(db_path, mode | stat.S_IWRITE)
+        except OSError as e:
+            raise RuntimeError(f"数据库文件为只读且无法自动解除：{db_path}") from e
 
     def init_db(self):
         """初始化数据库，创建表"""
@@ -2080,6 +3128,11 @@ class Database:
                 real_refund_reason_detail TEXT DEFAULT '',
                 real_refund_reason_updated_at TEXT DEFAULT '',
                 real_refund_reason_note_hash TEXT DEFAULT '',
+                quality_refund_reason TEXT DEFAULT '',
+                quality_not_cancelled_reason TEXT DEFAULT '',
+                quality_refund_reason_detail TEXT DEFAULT '',
+                quality_refund_reason_updated_at TEXT DEFAULT '',
+                quality_refund_reason_note_hash TEXT DEFAULT '',
                 refund_amount REAL NOT NULL,
                 cancel INTEGER DEFAULT 0,
                 compensate INTEGER DEFAULT 0,
@@ -2089,6 +3142,8 @@ class Database:
                 notes TEXT DEFAULT '',  -- 备注信息
                 order_status TEXT DEFAULT '',
                 after_sale_status TEXT DEFAULT '',
+                refund_apply_time TEXT DEFAULT '',
+                refund_agree_time TEXT DEFAULT '',
                 record_date TEXT DEFAULT '',
                 FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
             )
@@ -2118,11 +3173,25 @@ class Database:
             )
         ''')
 
+        self._create_store_weekly_settings_history_table(cursor)
+        self._create_store_weekly_spec_orders_table(cursor)
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS real_refund_reason_categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 category_name TEXT UNIQUE NOT NULL,
                 keywords_text TEXT DEFAULT '',
+                status TEXT DEFAULT 'ACTIVE',
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quality_not_cancelled_reason_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_name TEXT UNIQUE NOT NULL,
                 status TEXT DEFAULT 'ACTIVE',
                 sort_order INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2144,6 +3213,7 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reject_countdown_order ON reject_countdown (order_no)')
         
         self.conn.commit()
+        self._init_sync_metadata()
         self.cleanup_empty_date_records()
 
     def cleanup_empty_date_records(self):
@@ -2199,6 +3269,12 @@ class Database:
             if 'spec_code' not in refund_columns:
                 cursor.execute("ALTER TABLE refund_records ADD COLUMN spec_code TEXT DEFAULT ''")
 
+            if 'refund_apply_time' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN refund_apply_time TEXT DEFAULT ''")
+
+            if 'refund_agree_time' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN refund_agree_time TEXT DEFAULT ''")
+
             if 'real_refund_reason' not in refund_columns:
                 cursor.execute("ALTER TABLE refund_records ADD COLUMN real_refund_reason TEXT DEFAULT ''")
 
@@ -2210,6 +3286,21 @@ class Database:
 
             if 'real_refund_reason_note_hash' not in refund_columns:
                 cursor.execute("ALTER TABLE refund_records ADD COLUMN real_refund_reason_note_hash TEXT DEFAULT ''")
+
+            if 'quality_refund_reason' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN quality_refund_reason TEXT DEFAULT ''")
+
+            if 'quality_not_cancelled_reason' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN quality_not_cancelled_reason TEXT DEFAULT ''")
+
+            if 'quality_refund_reason_detail' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN quality_refund_reason_detail TEXT DEFAULT ''")
+
+            if 'quality_refund_reason_updated_at' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN quality_refund_reason_updated_at TEXT DEFAULT ''")
+
+            if 'quality_refund_reason_note_hash' not in refund_columns:
+                cursor.execute("ALTER TABLE refund_records ADD COLUMN quality_refund_reason_note_hash TEXT DEFAULT ''")
 
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='real_refund_reason_categories'")
         if cursor.fetchone():
@@ -2235,6 +3326,9 @@ class Database:
                 setting_value TEXT
             )
         ''')
+
+        self._create_store_weekly_settings_history_table(cursor)
+        self._create_store_weekly_spec_orders_table(cursor)
         
         self.conn.commit()
 
@@ -2280,6 +3374,16 @@ class Database:
             ''')
             print("✅ 自动修复：ai_summary_history 表已创建")
 
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='store_weekly_settings_history'")
+        if not cursor.fetchone():
+            self._create_store_weekly_settings_history_table(cursor)
+            print("✅ 自动修复：store_weekly_settings_history 表已创建")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='store_weekly_spec_orders'")
+        if not cursor.fetchone():
+            self._create_store_weekly_spec_orders_table(cursor)
+            print("✅ 自动修复：store_weekly_spec_orders 表已创建")
+
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='real_refund_reason_categories'")
         if not cursor.fetchone():
             cursor.execute('''
@@ -2294,6 +3398,20 @@ class Database:
                 )
             ''')
             print("✅ 自动修复：real_refund_reason_categories 表已创建")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='quality_not_cancelled_reason_categories'")
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS quality_not_cancelled_reason_categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category_name TEXT UNIQUE NOT NULL,
+                    status TEXT DEFAULT 'ACTIVE',
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            print("✅ 自动修复：quality_not_cancelled_reason_categories 表已创建")
         
         # 检查 refund_records 表是否存在
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='refund_records'")
@@ -2311,6 +3429,11 @@ class Database:
                     real_refund_reason_detail TEXT DEFAULT '',
                     real_refund_reason_updated_at TEXT DEFAULT '',
                     real_refund_reason_note_hash TEXT DEFAULT '',
+                    quality_refund_reason TEXT DEFAULT '',
+                    quality_not_cancelled_reason TEXT DEFAULT '',
+                    quality_refund_reason_detail TEXT DEFAULT '',
+                    quality_refund_reason_updated_at TEXT DEFAULT '',
+                    quality_refund_reason_note_hash TEXT DEFAULT '',
                     refund_amount REAL NOT NULL,
                     cancel INTEGER DEFAULT 0,
                     compensate INTEGER DEFAULT 0,
@@ -2320,6 +3443,8 @@ class Database:
                 notes TEXT DEFAULT '',
                 order_status TEXT DEFAULT '',
                 after_sale_status TEXT DEFAULT '',
+                refund_apply_time TEXT DEFAULT '',
+                refund_agree_time TEXT DEFAULT '',
                 record_date TEXT DEFAULT '',
                 FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
             )
@@ -2328,10 +3453,588 @@ class Database:
         
         self.conn.commit()
 
+    def _create_store_weekly_settings_history_table(self, cursor):
+        """创建店铺周数据历史记录表。"""
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS store_weekly_settings_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_id INTEGER NOT NULL,
+                store_name_snapshot TEXT NOT NULL,
+                week_start_date TEXT NOT NULL,
+                week_end_date TEXT NOT NULL,
+                weekly_orders INTEGER DEFAULT 0,
+                weekly_sales REAL DEFAULT 0.0,
+                refund_budget REAL DEFAULT 0.0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(store_id, week_start_date),
+                FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_store_weekly_history_store_week
+            ON store_weekly_settings_history (store_id, week_start_date DESC)
+        ''')
+
+    def _create_store_weekly_spec_orders_table(self, cursor):
+        """创建店铺周规格单量历史表。"""
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS store_weekly_spec_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_id INTEGER NOT NULL,
+                store_name_snapshot TEXT NOT NULL,
+                week_start_date TEXT NOT NULL,
+                week_end_date TEXT NOT NULL,
+                spec_code TEXT NOT NULL,
+                order_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(store_id, week_start_date, spec_code),
+                FOREIGN KEY (store_id) REFERENCES stores (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_store_weekly_spec_orders_store_week
+            ON store_weekly_spec_orders (store_id, week_start_date DESC)
+        ''')
+
     def close(self):
         """关闭数据库连接"""
         if self.conn:
             self.conn.close()
+
+    def _init_sync_metadata(self):
+        """初始化云同步所需的元数据列、状态表和触发器。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cloud_sync_state (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cloud_sync_applied_changes (
+                change_key TEXT PRIMARY KEY,
+                change_created_at TEXT DEFAULT '',
+                applied_at TEXT DEFAULT '',
+                row_count INTEGER DEFAULT 0
+            )
+        ''')
+
+        for table in SYNC_TABLES:
+            if not self._table_exists(cursor, table):
+                continue
+            self._ensure_sync_columns(cursor, table)
+            self._backfill_sync_columns(cursor, table)
+            self._create_sync_triggers(cursor, table)
+
+        if not self._get_sync_state(cursor, 'device_id'):
+            cursor.execute(
+                'INSERT OR REPLACE INTO cloud_sync_state (setting_key, setting_value) VALUES (?, ?)',
+                ('device_id', str(uuid.uuid4()))
+            )
+        self.conn.commit()
+
+    def _table_exists(self, cursor, table):
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        return cursor.fetchone() is not None
+
+    def _get_table_columns(self, cursor, table):
+        cursor.execute(f'PRAGMA table_info({table})')
+        return [row[1] for row in cursor.fetchall()]
+
+    def _ensure_sync_columns(self, cursor, table):
+        columns = self._get_table_columns(cursor, table)
+        if 'sync_id' not in columns:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN sync_id TEXT')
+        if 'updated_at' not in columns:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN updated_at TEXT')
+        if 'deleted_at' not in columns:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN deleted_at TEXT')
+        if 'sync_deleted' not in columns:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN sync_deleted INTEGER DEFAULT 0')
+        cursor.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_sync_id ON {table} (sync_id)')
+        cursor.execute(f'CREATE INDEX IF NOT EXISTS idx_{table}_sync_updated_at ON {table} (updated_at)')
+
+    def _backfill_sync_columns(self, cursor, table):
+        key = SYNC_TABLES[table]['key']
+        rows = cursor.execute(f"SELECT {key} FROM {table} WHERE sync_id IS NULL OR sync_id = ''").fetchall()
+        now = utc_now_text()
+        for (row_id,) in rows:
+            cursor.execute(
+                f"UPDATE {table} SET sync_id=?, updated_at=COALESCE(NULLIF(updated_at, ''), ?), sync_deleted=COALESCE(sync_deleted, 0) WHERE {key}=?",
+                (str(uuid.uuid4()), now, row_id)
+            )
+        cursor.execute(f"UPDATE {table} SET updated_at=? WHERE updated_at IS NULL OR updated_at = ''", (now,))
+        cursor.execute(f"UPDATE {table} SET sync_deleted=0 WHERE sync_deleted IS NULL")
+
+    def _create_sync_triggers(self, cursor, table):
+        key = SYNC_TABLES[table]['key']
+        cursor.execute(f'''
+            CREATE TRIGGER IF NOT EXISTS trg_{table}_sync_insert
+            AFTER INSERT ON {table}
+            FOR EACH ROW
+            WHEN NEW.sync_id IS NULL OR NEW.sync_id = '' OR NEW.updated_at IS NULL OR NEW.updated_at = ''
+            BEGIN
+                UPDATE {table}
+                SET sync_id = CASE WHEN NEW.sync_id IS NULL OR NEW.sync_id = '' THEN lower(hex(randomblob(16))) ELSE NEW.sync_id END,
+                    updated_at = CASE WHEN NEW.updated_at IS NULL OR NEW.updated_at = '' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NEW.updated_at END,
+                    sync_deleted = COALESCE(NEW.sync_deleted, 0)
+                WHERE {key} = NEW.{key};
+            END
+        ''')
+        cursor.execute(f'''
+            CREATE TRIGGER IF NOT EXISTS trg_{table}_sync_update
+            AFTER UPDATE ON {table}
+            FOR EACH ROW
+            WHEN NEW.updated_at = OLD.updated_at
+            BEGIN
+                UPDATE {table}
+                SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE {key} = NEW.{key};
+            END
+        ''')
+
+    def _get_sync_state(self, cursor, key):
+        row = cursor.execute('SELECT setting_value FROM cloud_sync_state WHERE setting_key=?', (key,)).fetchone()
+        return row[0] if row else ''
+
+    def get_cloud_device_id(self):
+        cursor = self.conn.cursor()
+        device_id = self._get_sync_state(cursor, 'device_id')
+        if not device_id:
+            device_id = str(uuid.uuid4())
+            cursor.execute(
+                'INSERT OR REPLACE INTO cloud_sync_state (setting_key, setting_value) VALUES (?, ?)',
+                ('device_id', device_id)
+            )
+            self.conn.commit()
+        return device_id
+
+    def load_cloud_sync_config(self):
+        cursor = self.conn.cursor()
+        rows = cursor.execute('SELECT setting_key, setting_value FROM cloud_sync_state').fetchall()
+        data = {key: value for key, value in rows}
+        return {
+            'device_id': data.get('device_id') or self.get_cloud_device_id(),
+            'secret_id': data.get('secret_id', ''),
+            'secret_key': data.get('secret_key', ''),
+            'bucket': data.get('bucket', ''),
+            'region': data.get('region', ''),
+            'prefix': data.get('prefix', 'shouhou-sync/'),
+            'last_upload_at': data.get('last_upload_at', ''),
+            'last_download_at': data.get('last_download_at', ''),
+        }
+
+    def save_cloud_sync_config(self, config):
+        cursor = self.conn.cursor()
+        for key in ('secret_id', 'secret_key', 'bucket', 'region', 'prefix'):
+            cursor.execute(
+                'INSERT OR REPLACE INTO cloud_sync_state (setting_key, setting_value) VALUES (?, ?)',
+                (key, str(config.get(key) or '').strip())
+            )
+        if not self._get_sync_state(cursor, 'device_id'):
+            cursor.execute(
+                'INSERT OR REPLACE INTO cloud_sync_state (setting_key, setting_value) VALUES (?, ?)',
+                ('device_id', str(uuid.uuid4()))
+            )
+        self.conn.commit()
+
+    def update_cloud_sync_state(self, **kwargs):
+        cursor = self.conn.cursor()
+        for key, value in kwargs.items():
+            cursor.execute(
+                'INSERT OR REPLACE INTO cloud_sync_state (setting_key, setting_value) VALUES (?, ?)',
+                (key, str(value or ''))
+            )
+        self.conn.commit()
+
+    def get_applied_cloud_change_keys(self):
+        cursor = self.conn.cursor()
+        return [row[0] for row in cursor.execute('SELECT change_key FROM cloud_sync_applied_changes').fetchall()]
+
+    def mark_cloud_change_applied(self, change_key, change_created_at, row_count):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO cloud_sync_applied_changes
+            (change_key, change_created_at, applied_at, row_count)
+            VALUES (?, ?, ?, ?)
+        ''', (change_key, change_created_at or '', utc_now_text(), int(row_count or 0)))
+        self.conn.commit()
+
+    def export_refund_records_cloud_index(self):
+        """导出当前有效订单索引，用于下载时按云端优先清理本地订单。"""
+        cursor = self.conn.cursor()
+        rows = cursor.execute('''
+            SELECT s.sync_id, r.order_no, r.sync_id, r.updated_at
+            FROM refund_records r
+            JOIN stores s ON r.store_id = s.id
+            WHERE IFNULL(r.sync_deleted, 0)=0
+              AND IFNULL(s.sync_deleted, 0)=0
+              AND IFNULL(TRIM(r.order_no), '') != ''
+              AND IFNULL(TRIM(s.sync_id), '') != ''
+            ORDER BY s.sync_id ASC, r.order_no ASC
+        ''').fetchall()
+        return {
+            'version': 1,
+            'device_id': self.get_cloud_device_id(),
+            'created_at': utc_now_text(),
+            'records': [
+                {
+                    'store_sync_id': row[0],
+                    'order_no': row[1],
+                    'sync_id': row[2],
+                    'updated_at': row[3] or '',
+                }
+                for row in rows
+            ],
+        }
+
+    def export_refund_records_cloud_snapshot(self):
+        """导出当前有效订单快照。下载时即使没有新增量包，也可恢复本地缺失订单。"""
+        cursor = self.conn.cursor()
+        snapshot = {
+            'version': 1,
+            'device_id': self.get_cloud_device_id(),
+            'created_at': utc_now_text(),
+            'stores': [],
+            'records': [],
+        }
+
+        store_meta = SYNC_TABLES['stores']
+        store_columns = [store_meta['key'], 'sync_id', 'updated_at', 'deleted_at', 'sync_deleted'] + store_meta['columns']
+        store_columns = [column for column in store_columns if column in set(self._get_table_columns(cursor, 'stores'))]
+        store_rows = cursor.execute(f'''
+            SELECT {', '.join('s.' + column for column in store_columns)}
+            FROM stores s
+            WHERE IFNULL(s.sync_deleted, 0)=0
+            ORDER BY s.store_name ASC
+        ''').fetchall()
+        snapshot['stores'] = [dict(zip(store_columns, row)) for row in store_rows]
+
+        record_meta = SYNC_TABLES['refund_records']
+        record_columns = [record_meta['key'], 'sync_id', 'updated_at', 'deleted_at', 'sync_deleted'] + record_meta['columns']
+        record_columns = [column for column in record_columns if column in set(self._get_table_columns(cursor, 'refund_records'))]
+        record_rows = cursor.execute(f'''
+            SELECT {', '.join('r.' + column for column in record_columns)}, s.sync_id AS _store_sync_id
+            FROM refund_records r
+            JOIN stores s ON r.store_id = s.id
+            WHERE IFNULL(r.sync_deleted, 0)=0
+              AND IFNULL(s.sync_deleted, 0)=0
+              AND IFNULL(TRIM(r.order_no), '') != ''
+            ORDER BY s.sync_id ASC, r.order_no ASC
+        ''').fetchall()
+        for row in record_rows:
+            item = dict(zip(record_columns + ['_store_sync_id'], row))
+            item['sync_deleted'] = 0
+            item['deleted_at'] = ''
+            snapshot['records'].append(item)
+        return snapshot
+
+    def apply_refund_records_cloud_snapshot(self, snapshot):
+        """用云端当前订单快照恢复本地缺失或被软删除的订单。"""
+        if not snapshot:
+            return 0
+
+        cursor = self.conn.cursor()
+        applied_records = 0
+        cursor.execute('PRAGMA foreign_keys = OFF')
+        try:
+            for store in snapshot.get('stores', []):
+                store = dict(store)
+                store['sync_deleted'] = 0
+                store['deleted_at'] = ''
+                self._apply_sync_row(cursor, 'stores', store)
+
+            for record in snapshot.get('records', []):
+                record = dict(record)
+                record['sync_deleted'] = 0
+                record['deleted_at'] = ''
+                if not self._refund_snapshot_record_needs_apply(cursor, record):
+                    continue
+                if self._apply_sync_row(cursor, 'refund_records', record):
+                    applied_records += 1
+            self.conn.commit()
+        finally:
+            cursor.execute('PRAGMA foreign_keys = ON')
+        return applied_records
+
+    def _refund_snapshot_record_needs_apply(self, cursor, record):
+        sync_id = str(record.get('sync_id') or '').strip()
+        store_sync_id = str(record.get('_store_sync_id') or '').strip()
+        order_no = str(record.get('order_no') or '').strip()
+        incoming_updated_at = str(record.get('updated_at') or '').strip()
+
+        local_row = None
+        if sync_id:
+            local_row = cursor.execute(
+                '''
+                SELECT id, sync_id, updated_at, sync_deleted
+                FROM refund_records
+                WHERE sync_id=?
+                ORDER BY IFNULL(sync_deleted, 0) ASC, updated_at DESC, id DESC
+                LIMIT 1
+                ''',
+                (sync_id,)
+            ).fetchone()
+
+        if not local_row and store_sync_id and order_no:
+            store_row = cursor.execute('SELECT id FROM stores WHERE sync_id=?', (store_sync_id,)).fetchone()
+            if store_row:
+                local_row = cursor.execute(
+                    '''
+                    SELECT id, sync_id, updated_at, sync_deleted
+                    FROM refund_records
+                    WHERE store_id=? AND order_no=?
+                    ORDER BY IFNULL(sync_deleted, 0) ASC, updated_at DESC, id DESC
+                    LIMIT 1
+                    ''',
+                    (store_row[0], order_no)
+                ).fetchone()
+
+        if not local_row:
+            return True
+        if int(local_row[3] or 0) != 0:
+            return True
+        if sync_id and str(local_row[1] or '') != sync_id:
+            return True
+        if incoming_updated_at and str(local_row[2] or '') != incoming_updated_at:
+            return True
+        return False
+
+    @staticmethod
+    def _cloud_refund_index_keys(cloud_index):
+        keys = set()
+        sync_ids = set()
+        for item in (cloud_index or {}).get('records', []):
+            store_sync_id = str(item.get('store_sync_id') or '').strip()
+            order_no = str(item.get('order_no') or '').strip()
+            sync_id = str(item.get('sync_id') or '').strip()
+            if store_sync_id and order_no:
+                keys.add((store_sync_id, order_no))
+            if sync_id:
+                sync_ids.add(sync_id)
+        return keys, sync_ids
+
+    def delete_refund_records_missing_from_cloud_index(self, cloud_index):
+        """按云端有效订单索引软删除本地多余订单。cloud_index 为 None 时不处理。"""
+        if cloud_index is None:
+            return 0
+
+        cloud_keys, _ = self._cloud_refund_index_keys(cloud_index)
+        cursor = self.conn.cursor()
+        rows = cursor.execute('''
+            SELECT r.id, s.sync_id, r.order_no
+            FROM refund_records r
+            JOIN stores s ON r.store_id = s.id
+            WHERE IFNULL(r.sync_deleted, 0)=0
+              AND IFNULL(s.sync_deleted, 0)=0
+        ''').fetchall()
+        now = utc_now_text()
+        deleted = 0
+        for record_id, store_sync_id, order_no in rows:
+            key = (str(store_sync_id or '').strip(), str(order_no or '').strip())
+            if key not in cloud_keys:
+                cursor.execute(
+                    '''
+                    UPDATE refund_records
+                    SET sync_deleted=1, deleted_at=?, updated_at=?
+                    WHERE id=? AND IFNULL(sync_deleted, 0)=0
+                    ''',
+                    (now, now, record_id)
+                )
+                deleted += cursor.rowcount
+        self.conn.commit()
+        return deleted
+
+    def dedupe_refund_records_by_store_order(self, cloud_index=None):
+        """同一店铺同一订单号只保留一条有效记录，其余软删除。"""
+        _, cloud_sync_ids = self._cloud_refund_index_keys(cloud_index)
+        cursor = self.conn.cursor()
+        groups = cursor.execute('''
+            SELECT r.store_id, r.order_no
+            FROM refund_records r
+            JOIN stores s ON r.store_id = s.id
+            WHERE IFNULL(r.sync_deleted, 0)=0
+              AND IFNULL(s.sync_deleted, 0)=0
+              AND IFNULL(TRIM(r.order_no), '') != ''
+            GROUP BY r.store_id, r.order_no
+            HAVING COUNT(*) > 1
+        ''').fetchall()
+
+        now = utc_now_text()
+        deleted = 0
+        for store_id, order_no in groups:
+            rows = cursor.execute('''
+                SELECT id, sync_id, updated_at
+                FROM refund_records
+                WHERE store_id=? AND order_no=? AND IFNULL(sync_deleted, 0)=0
+                ORDER BY updated_at DESC, id DESC
+            ''', (store_id, order_no)).fetchall()
+            if not rows:
+                continue
+
+            keep_id = None
+            for record_id, sync_id, _ in rows:
+                if sync_id in cloud_sync_ids:
+                    keep_id = record_id
+                    break
+            if keep_id is None:
+                keep_id = rows[0][0]
+
+            for record_id, _, _ in rows:
+                if record_id == keep_id:
+                    continue
+                cursor.execute(
+                    '''
+                    UPDATE refund_records
+                    SET sync_deleted=1, deleted_at=?, updated_at=?
+                    WHERE id=? AND IFNULL(sync_deleted, 0)=0
+                    ''',
+                    (now, now, record_id)
+                )
+                deleted += cursor.rowcount
+
+        self.conn.commit()
+        return deleted
+
+    def export_sync_changes(self, since):
+        cursor = self.conn.cursor()
+        package = {
+            'version': 1,
+            'device_id': self.get_cloud_device_id(),
+            'created_at': utc_now_text(),
+            'tables': {},
+        }
+        for table, meta in SYNC_TABLES.items():
+            if not self._table_exists(cursor, table):
+                continue
+            columns = [meta['key'], 'sync_id', 'updated_at', 'deleted_at', 'sync_deleted'] + meta['columns']
+            available = set(self._get_table_columns(cursor, table))
+            columns = [column for column in columns if column in available]
+            where = "WHERE updated_at > ?" if since else ""
+            params = (since,) if since else ()
+            rows = cursor.execute(
+                f"SELECT {', '.join(columns)} FROM {table} {where} ORDER BY updated_at ASC",
+                params
+            ).fetchall()
+            items = []
+            for row in rows:
+                item = dict(zip(columns, row))
+                if meta.get('store_ref') and item.get(meta['store_ref']):
+                    store_sync = cursor.execute(
+                        'SELECT sync_id FROM stores WHERE id=?',
+                        (item[meta['store_ref']],)
+                    ).fetchone()
+                    item['_store_sync_id'] = store_sync[0] if store_sync else ''
+                items.append(item)
+            package['tables'][table] = items
+        return package
+
+    def apply_sync_package(self, package):
+        cursor = self.conn.cursor()
+        applied = 0
+        cursor.execute('PRAGMA foreign_keys = OFF')
+        try:
+            for table in SYNC_TABLES:
+                for row in package.get('tables', {}).get(table, []):
+                    if self._apply_sync_row(cursor, table, row):
+                        applied += 1
+            self.conn.commit()
+        finally:
+            cursor.execute('PRAGMA foreign_keys = ON')
+        return applied
+
+    def _apply_sync_row(self, cursor, table, row):
+        meta = SYNC_TABLES[table]
+        sync_id = str(row.get('sync_id') or '').strip()
+        if not sync_id:
+            return False
+
+        local_id = self._find_local_sync_row(cursor, table, meta, row)
+        incoming_deleted = int(row.get('sync_deleted') or 0)
+        incoming_updated_at = row.get('updated_at') or utc_now_text()
+        deleted_at = row.get('deleted_at') or (incoming_updated_at if incoming_deleted else '')
+        values = {}
+
+        for column in meta['columns']:
+            if column not in row:
+                continue
+            values[column] = row.get(column)
+
+        if meta.get('store_ref'):
+            store_sync_id = row.get('_store_sync_id') or ''
+            mapped_store_id = self._get_or_create_store_by_sync_id(cursor, store_sync_id)
+            if mapped_store_id:
+                values[meta['store_ref']] = mapped_store_id
+            elif not incoming_deleted:
+                return False
+
+        values.update({
+            'sync_id': sync_id,
+            'updated_at': incoming_updated_at,
+            'deleted_at': deleted_at,
+            'sync_deleted': incoming_deleted,
+        })
+
+        if local_id:
+            set_clause = ', '.join([f'{column}=?' for column in values])
+            cursor.execute(
+                f"UPDATE {table} SET {set_clause} WHERE {meta['key']}=?",
+                [values[column] for column in values] + [local_id]
+            )
+        else:
+            if incoming_deleted:
+                return False
+            columns = list(values.keys())
+            placeholders = ', '.join(['?'] * len(columns))
+            cursor.execute(
+                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+                [values[column] for column in columns]
+            )
+        return True
+
+    def _find_local_sync_row(self, cursor, table, meta, row):
+        found = cursor.execute(f"SELECT {meta['key']} FROM {table} WHERE sync_id=?", (row.get('sync_id'),)).fetchone()
+        if found:
+            return found[0]
+        unique = meta.get('unique') or []
+        if not unique:
+            return None
+        clauses = []
+        params = []
+        for column in unique:
+            value = row.get(column)
+            if meta.get('store_ref') == column:
+                value = self._get_or_create_store_by_sync_id(cursor, row.get('_store_sync_id') or '')
+            if value is None:
+                return None
+            clauses.append(f"{column}=?")
+            params.append(value)
+        order_clause = f" ORDER BY IFNULL(sync_deleted, 0) ASC, updated_at DESC, {meta['key']} DESC"
+        found = cursor.execute(
+            f"SELECT {meta['key']} FROM {table} WHERE {' AND '.join(clauses)}{order_clause}",
+            params
+        ).fetchone()
+        return found[0] if found else None
+
+    def _get_or_create_store_by_sync_id(self, cursor, store_sync_id):
+        if not store_sync_id:
+            return None
+        row = cursor.execute('SELECT id FROM stores WHERE sync_id=?', (store_sync_id,)).fetchone()
+        if row:
+            return row[0]
+        return None
+
+    def _soft_delete(self, table, where_clause, params):
+        cursor = self.conn.cursor()
+        now = utc_now_text()
+        cursor.execute(
+            f"UPDATE {table} SET sync_deleted=1, deleted_at=?, updated_at=? WHERE {where_clause} AND IFNULL(sync_deleted, 0)=0",
+            (now, now, *params)
+        )
+        self.conn.commit()
+        return cursor.rowcount
 
     def save_ai_summary_history(self, filter_summary, snapshot):
         """保存AI总结历史快照。"""
@@ -2353,6 +4056,7 @@ class Database:
             '''
             SELECT id, filter_summary, created_at
             FROM ai_summary_history
+            WHERE IFNULL(sync_deleted, 0)=0
             ORDER BY id DESC
             LIMIT ?
             ''',
@@ -2370,7 +4074,7 @@ class Database:
             '''
             SELECT id, filter_summary, snapshot_json, created_at
             FROM ai_summary_history
-            WHERE id=?
+            WHERE id=? AND IFNULL(sync_deleted, 0)=0
             ''',
             (history_id,)
         )
@@ -2396,11 +4100,8 @@ class Database:
         ids = [int(item) for item in history_ids or [] if item]
         if not ids:
             return 0
-        cursor = self.conn.cursor()
         placeholders = ",".join("?" for _ in ids)
-        cursor.execute(f"DELETE FROM ai_summary_history WHERE id IN ({placeholders})", ids)
-        self.conn.commit()
-        return cursor.rowcount
+        return self._soft_delete('ai_summary_history', f"id IN ({placeholders})", tuple(ids))
 
     def get_real_refund_reason_categories(self, active_only=True):
         """获取真实退款原因分类列表。"""
@@ -2408,9 +4109,10 @@ class Database:
         query = '''
             SELECT id, category_name, keywords_text, status, sort_order, created_at, updated_at
             FROM real_refund_reason_categories
+            WHERE IFNULL(sync_deleted, 0)=0
         '''
         if active_only:
-            query += " WHERE status = 'ACTIVE'"
+            query += " AND status = 'ACTIVE'"
         query += " ORDER BY sort_order ASC, id ASC"
         cursor.execute(query)
         return [
@@ -2476,13 +4178,9 @@ class Database:
         keep_names = [item["category_name"] for item in cleaned]
         if keep_names:
             placeholders = ",".join("?" for _ in keep_names)
-            cursor.execute(
-                f"DELETE FROM real_refund_reason_categories WHERE category_name NOT IN ({placeholders})",
-                keep_names
-            )
+            self._soft_delete('real_refund_reason_categories', f"category_name NOT IN ({placeholders})", tuple(keep_names))
         else:
-            cursor.execute("DELETE FROM real_refund_reason_categories")
-        self.conn.commit()
+            self._soft_delete('real_refund_reason_categories', "1=1", ())
         return cleaned
 
     def ensure_default_real_refund_reason_categories(self, default_categories):
@@ -2517,7 +4215,7 @@ class Database:
     def get_stores(self):
         """获取所有店铺，返回列表 [(id, name), ...]"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id, store_name FROM stores ORDER BY store_name')
+        cursor.execute('SELECT id, store_name FROM stores WHERE IFNULL(sync_deleted, 0)=0 ORDER BY store_name')
         return cursor.fetchall()
 
     def add_store(self, name):
@@ -2528,6 +4226,16 @@ class Database:
             self.conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError:
+            cursor = self.conn.cursor()
+            now = utc_now_text()
+            cursor.execute(
+                "UPDATE stores SET sync_deleted=0, deleted_at='', updated_at=? WHERE store_name=? AND IFNULL(sync_deleted, 0)=1",
+                (now, name)
+            )
+            self.conn.commit()
+            if cursor.rowcount > 0:
+                row = cursor.execute('SELECT id FROM stores WHERE store_name=?', (name,)).fetchone()
+                return row[0] if row else None
             return None
 
     def set_store_color(self, store_name, color):
@@ -2582,6 +4290,7 @@ class Database:
         cursor.execute('''
             SELECT daily_orders, daily_sales, refund_budget
             FROM stores WHERE id = ?
+              AND IFNULL(sync_deleted, 0)=0
         ''', (store_id,))
         result = cursor.fetchone()
         if result:
@@ -2592,12 +4301,228 @@ class Database:
             }
         return None
 
+    def save_store_weekly_settings_history(
+        self,
+        store_id,
+        store_name,
+        week_start_date,
+        week_end_date,
+        weekly_orders,
+        weekly_sales,
+        refund_budget
+    ):
+        """保存或覆盖店铺周数据历史记录。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO store_weekly_settings_history (
+                store_id, store_name_snapshot, week_start_date, week_end_date,
+                weekly_orders, weekly_sales, refund_budget
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(store_id, week_start_date) DO UPDATE SET
+                store_name_snapshot = excluded.store_name_snapshot,
+                week_end_date = excluded.week_end_date,
+                weekly_orders = excluded.weekly_orders,
+                weekly_sales = excluded.weekly_sales,
+                refund_budget = excluded.refund_budget,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (
+            store_id,
+            store_name,
+            week_start_date,
+            week_end_date,
+            weekly_orders,
+            weekly_sales,
+            refund_budget
+        ))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_store_weekly_settings_history(self, store_id, limit=200):
+        """获取指定店铺的周数据历史记录。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, store_id, store_name_snapshot, week_start_date, week_end_date,
+                   weekly_orders, weekly_sales, refund_budget, created_at, updated_at
+            FROM store_weekly_settings_history
+            WHERE store_id = ? AND IFNULL(sync_deleted, 0)=0
+            ORDER BY week_start_date DESC, id DESC
+            LIMIT ?
+        ''', (store_id, limit))
+        return [self._row_to_store_weekly_history(row) for row in cursor.fetchall()]
+
+    def get_store_weekly_settings_history_by_week(self, store_id, week_start_date):
+        """按店铺和周开始日期获取一条历史记录。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, store_id, store_name_snapshot, week_start_date, week_end_date,
+                   weekly_orders, weekly_sales, refund_budget, created_at, updated_at
+            FROM store_weekly_settings_history
+            WHERE store_id = ? AND week_start_date = ? AND IFNULL(sync_deleted, 0)=0
+        ''', (store_id, week_start_date))
+        row = cursor.fetchone()
+        return self._row_to_store_weekly_history(row) if row else None
+
+    def delete_store_weekly_settings_history(self, history_id, store_id):
+        """删除指定店铺的一条周数据历史记录。"""
+        return self._soft_delete(
+            'store_weekly_settings_history',
+            'id = ? AND store_id = ?',
+            (history_id, store_id)
+        ) > 0
+
+    @staticmethod
+    def _row_to_store_weekly_history(row):
+        return {
+            'id': row[0],
+            'store_id': row[1],
+            'store_name_snapshot': row[2],
+            'week_start_date': row[3],
+            'week_end_date': row[4],
+            'weekly_orders': row[5] or 0,
+            'weekly_sales': row[6] or 0.0,
+            'refund_budget': row[7] or 0.0,
+            'created_at': row[8],
+            'updated_at': row[9],
+        }
+
+    def save_store_weekly_spec_orders(
+        self,
+        store_id,
+        store_name,
+        week_start_date,
+        week_end_date,
+        spec_orders
+    ):
+        """覆盖保存某店铺某自然周的规格单量明细。"""
+        merged_items = {}
+        for item in spec_orders or []:
+            spec_code = str(item.get('spec_code') or '').strip()
+            if not spec_code:
+                continue
+            try:
+                order_count = int(item.get('order_count') or 0)
+            except (TypeError, ValueError):
+                continue
+            if order_count < 0:
+                continue
+            merged_items[spec_code] = merged_items.get(spec_code, 0) + order_count
+
+        cleaned_items = sorted(
+            merged_items.items(),
+            key=lambda item: (-item[1], item[0])
+        )
+
+        cursor = self.conn.cursor()
+        self._soft_delete('store_weekly_spec_orders', 'store_id = ? AND week_start_date = ?', (store_id, week_start_date))
+
+        for spec_code, order_count in cleaned_items:
+            cursor.execute('''
+                INSERT INTO store_weekly_spec_orders (
+                    store_id, store_name_snapshot, week_start_date, week_end_date,
+                    spec_code, order_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(store_id, week_start_date, spec_code) DO UPDATE SET
+                    store_name_snapshot=excluded.store_name_snapshot,
+                    week_end_date=excluded.week_end_date,
+                    order_count=excluded.order_count,
+                    sync_deleted=0,
+                    deleted_at='',
+                    updated_at=CURRENT_TIMESTAMP
+            ''', (
+                store_id,
+                store_name,
+                week_start_date,
+                week_end_date,
+                spec_code,
+                order_count
+            ))
+
+        self.conn.commit()
+        return len(cleaned_items)
+
+    def get_store_weekly_spec_orders_by_week(self, store_id, week_start_date):
+        """获取某店铺某自然周的规格单量明细。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, store_id, store_name_snapshot, week_start_date, week_end_date,
+                   spec_code, order_count, created_at, updated_at
+            FROM store_weekly_spec_orders
+            WHERE store_id = ? AND week_start_date = ? AND IFNULL(sync_deleted, 0)=0
+            ORDER BY order_count DESC, spec_code ASC
+        ''', (store_id, week_start_date))
+        return [self._row_to_store_weekly_spec_order(row) for row in cursor.fetchall()]
+
+    def get_store_weekly_spec_orders_history_summary(self, store_id, limit=200):
+        """按自然周获取某店铺规格单量历史汇总。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT store_id, MAX(store_name_snapshot), week_start_date, MAX(week_end_date),
+                   COUNT(*) AS spec_count, SUM(order_count) AS total_orders,
+                   MIN(created_at) AS created_at, MAX(updated_at) AS updated_at
+            FROM store_weekly_spec_orders
+            WHERE store_id = ? AND IFNULL(sync_deleted, 0)=0
+            GROUP BY store_id, week_start_date
+            ORDER BY week_start_date DESC
+            LIMIT ?
+        ''', (store_id, limit))
+        return [
+            {
+                'store_id': row[0],
+                'store_name_snapshot': row[1] or '',
+                'week_start_date': row[2],
+                'week_end_date': row[3],
+                'spec_count': row[4] or 0,
+                'total_orders': row[5] or 0,
+                'created_at': row[6],
+                'updated_at': row[7],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_store_weekly_spec_orders_history(self, store_id, limit=1000):
+        """获取某店铺已保存的规格单量历史明细。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, store_id, store_name_snapshot, week_start_date, week_end_date,
+                   spec_code, order_count, created_at, updated_at
+            FROM store_weekly_spec_orders
+            WHERE store_id = ? AND IFNULL(sync_deleted, 0)=0
+            ORDER BY week_start_date DESC, order_count DESC, spec_code ASC
+            LIMIT ?
+        ''', (store_id, limit))
+        return [self._row_to_store_weekly_spec_order(row) for row in cursor.fetchall()]
+
+    def delete_store_weekly_spec_orders_by_week(self, store_id, week_start_date):
+        """删除某店铺某自然周的规格单量明细。"""
+        return self._soft_delete(
+            'store_weekly_spec_orders',
+            'store_id = ? AND week_start_date = ?',
+            (store_id, week_start_date)
+        ) > 0
+
+    @staticmethod
+    def _row_to_store_weekly_spec_order(row):
+        return {
+            'id': row[0],
+            'store_id': row[1],
+            'store_name_snapshot': row[2],
+            'week_start_date': row[3],
+            'week_end_date': row[4],
+            'spec_code': row[5] or '',
+            'order_count': row[6] or 0,
+            'created_at': row[7],
+            'updated_at': row[8],
+        }
+
     def delete_store(self, store_id):
         """删除店铺及其相关数据（由于外键约束，相关记录会自动删除）"""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute('DELETE FROM stores WHERE id = ?', (store_id,))
-            self.conn.commit()
+            self._soft_delete('refund_records', 'store_id = ?', (store_id,))
+            self._soft_delete('store_weekly_settings_history', 'store_id = ?', (store_id,))
+            self._soft_delete('store_weekly_spec_orders', 'store_id = ?', (store_id,))
+            self._soft_delete('stores', 'id = ?', (store_id,))
             return True
         except Exception as e:
             print(f"删除店铺失败: {e}")
@@ -2703,6 +4628,7 @@ class Database:
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
             WHERE s.store_name = ? AND r.cancel = 0
+              AND IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
         ''', (store_name,))
         result = cursor.fetchone()
         if result and result[0] is not None:
@@ -2719,10 +4645,12 @@ class Database:
         cursor.execute('''
             SELECT r.id, r.order_no, r.spec_name, r.spec_code, r.reason,
                    r.real_refund_reason, r.real_refund_reason_detail, r.real_refund_reason_updated_at, r.real_refund_reason_note_hash,
+                   r.quality_refund_reason, r.quality_not_cancelled_reason, r.quality_refund_reason_detail, r.quality_refund_reason_updated_at, r.quality_refund_reason_note_hash,
                    r.refund_amount, r.cancel, r.compensate, r.comp_amount,
-                   r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
+                   r.order_status, r.after_sale_status, r.refund_apply_time, r.refund_agree_time, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
+            WHERE IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
             ORDER BY r.record_date DESC, r.id DESC
         ''')
         records = []
@@ -2731,16 +4659,59 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'spec_name': row[2] or '', 'spec_code': row[3] or '',
                 'reason': row[4], 'real_refund_reason': row[5] or '', 'real_refund_reason_detail': row[6] or '',
                 'real_refund_reason_updated_at': row[7] or '', 'real_refund_reason_note_hash': row[8] or '',
-                'refund_amount': row[9], 'cancel': bool(row[10]), 'compensate': bool(row[11]), 'comp_amount': row[12],
-                'order_status': row[13], 'after_sale_status': row[14],
-                'record_date': row[15], 'store_name': row[16], 'store_id': row[17]
+                'quality_refund_reason': row[9] or '', 'quality_not_cancelled_reason': row[10] or '',
+                'quality_refund_reason_detail': row[11] or '', 'quality_refund_reason_updated_at': row[12] or '',
+                'quality_refund_reason_note_hash': row[13] or '',
+                'refund_amount': row[14], 'cancel': bool(row[15]), 'compensate': bool(row[16]), 'comp_amount': row[17],
+                'order_status': row[18], 'after_sale_status': row[19],
+                'refund_apply_time': row[20] or '', 'refund_agree_time': row[21] or '',
+                'record_date': row[22], 'store_name': row[23], 'store_id': row[24]
             })
         return records
+
+    def get_records_missing_spec_code_with_name(self):
+        """获取已录入规格名称但规格编码为空的记录。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, spec_name, spec_code
+            FROM refund_records
+            WHERE IFNULL(TRIM(spec_name), '') != ''
+              AND IFNULL(TRIM(spec_code), '') IN ('', '-')
+              AND IFNULL(sync_deleted, 0)=0
+            ORDER BY id
+        ''')
+        return [
+            {
+                'id': row[0],
+                'spec_name': row[1] or '',
+                'spec_code': row[2] or '',
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_records_with_spec_name(self):
+        """获取所有已录入规格名称的记录，用于手动重新识别规格编码。"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, spec_name, spec_code
+            FROM refund_records
+            WHERE IFNULL(TRIM(spec_name), '') != ''
+              AND IFNULL(sync_deleted, 0)=0
+            ORDER BY id
+        ''')
+        return [
+            {
+                'id': row[0],
+                'spec_name': row[1] or '',
+                'spec_code': row[2] or '',
+            }
+            for row in cursor.fetchall()
+        ]
 
     def get_total_record_count(self):
         """获取数据库中的总记录数"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM refund_records')
+        cursor.execute('SELECT COUNT(*) FROM refund_records WHERE IFNULL(sync_deleted, 0)=0')
         result = cursor.fetchone()
         if result and isinstance(result, (tuple, list)) and len(result) > 0:
             return result[0] if isinstance(result[0], int) else int(result[0])
@@ -2848,7 +4819,7 @@ class Database:
                                  reject='全部', start_date=None, end_date=None, store_name='全部'):
         """根据筛选条件获取记录数"""
         cursor = self.conn.cursor()
-        query = 'SELECT COUNT(*) FROM refund_records r JOIN stores s ON r.store_id = s.id WHERE 1=1'
+        query = 'SELECT COUNT(*) FROM refund_records r JOIN stores s ON r.store_id = s.id WHERE IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0'
         params = []
         
         if order_no:
@@ -2889,19 +4860,20 @@ class Database:
             return result[0] if isinstance(result[0], int) else int(result[0])
         return 0
 
-    def add_record(self, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status='', spec_name='', spec_code=''):
+    def add_record(self, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status='', spec_name='', spec_code='', refund_apply_time='', refund_agree_time=''):
         """添加退款记录"""
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT INTO refund_records 
-            (store_id, order_no, spec_name, spec_code, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, order_status, after_sale_status, record_date,
-             real_refund_reason, real_refund_reason_detail, real_refund_reason_updated_at, real_refund_reason_note_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', '', '')
-        ''', (store_id, order_no, spec_name, spec_code, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, record_date))
+            (store_id, order_no, spec_name, spec_code, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, order_status, after_sale_status, refund_apply_time, refund_agree_time, record_date,
+             real_refund_reason, real_refund_reason_detail, real_refund_reason_updated_at, real_refund_reason_note_hash,
+             quality_refund_reason, quality_not_cancelled_reason, quality_refund_reason_detail, quality_refund_reason_updated_at, quality_refund_reason_note_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', '', '', '', '', '', '', '')
+        ''', (store_id, order_no, spec_name, spec_code, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, refund_apply_time, refund_agree_time, record_date))
         self.conn.commit()
         return cursor.lastrowid
 
-    def update_record(self, record_id, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status='', spec_name='', spec_code=''):
+    def update_record(self, record_id, store_id, order_no, reason, refund_amount, cancel, compensate, comp_amount, reject, reject_result, notes, record_date, order_status='', after_sale_status='', spec_name='', spec_code='', refund_apply_time=None, refund_agree_time=None):
         """更新退款记录"""
         cursor = self.conn.cursor()
         existing_note_row = cursor.execute(
@@ -2913,20 +4885,41 @@ class Database:
         real_reason_detail = ''
         real_reason_updated_at = ''
         real_reason_note_hash = ''
+        quality_reason = ''
+        quality_not_cancelled_reason = ''
+        quality_reason_detail = ''
+        quality_reason_updated_at = ''
+        quality_reason_note_hash = ''
         if not notes_changed:
             real_reason_row = cursor.execute(
-                'SELECT real_refund_reason, real_refund_reason_detail, real_refund_reason_updated_at, real_refund_reason_note_hash FROM refund_records WHERE id=?',
+                '''
+                SELECT real_refund_reason, real_refund_reason_detail, real_refund_reason_updated_at, real_refund_reason_note_hash,
+                       quality_refund_reason, quality_not_cancelled_reason, quality_refund_reason_detail,
+                       quality_refund_reason_updated_at, quality_refund_reason_note_hash
+                FROM refund_records WHERE id=?
+                ''',
                 (record_id,)
             ).fetchone()
             if real_reason_row:
-                real_reason, real_reason_detail, real_reason_updated_at, real_reason_note_hash = real_reason_row
+                real_reason, real_reason_detail, real_reason_updated_at, real_reason_note_hash = real_reason_row[:4]
+                quality_reason, quality_not_cancelled_reason, quality_reason_detail, quality_reason_updated_at, quality_reason_note_hash = real_reason_row[4:9]
+        if refund_apply_time is None or refund_agree_time is None:
+            time_row = cursor.execute(
+                'SELECT refund_apply_time, refund_agree_time FROM refund_records WHERE id=?',
+                (record_id,)
+            ).fetchone()
+            if refund_apply_time is None:
+                refund_apply_time = time_row[0] if time_row else ''
+            if refund_agree_time is None:
+                refund_agree_time = time_row[1] if time_row else ''
         cursor.execute('''
             UPDATE refund_records SET
                 store_id=?, order_no=?, spec_name=?, spec_code=?, reason=?, refund_amount=?,
-                cancel=?, compensate=?, comp_amount=?, reject=?, reject_result=?, notes=?, order_status=?, after_sale_status=?, record_date=?,
-                real_refund_reason=?, real_refund_reason_detail=?, real_refund_reason_updated_at=?, real_refund_reason_note_hash=?
+                cancel=?, compensate=?, comp_amount=?, reject=?, reject_result=?, notes=?, order_status=?, after_sale_status=?, refund_apply_time=?, refund_agree_time=?, record_date=?,
+                real_refund_reason=?, real_refund_reason_detail=?, real_refund_reason_updated_at=?, real_refund_reason_note_hash=?,
+                quality_refund_reason=?, quality_not_cancelled_reason=?, quality_refund_reason_detail=?, quality_refund_reason_updated_at=?, quality_refund_reason_note_hash=?
             WHERE id=?
-        ''', (store_id, order_no, spec_name, spec_code, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, record_date, real_reason, real_reason_detail, real_reason_updated_at, real_reason_note_hash, record_id))
+        ''', (store_id, order_no, spec_name, spec_code, reason, refund_amount, 1 if cancel else 0, 1 if compensate else 0, comp_amount, 1 if reject else 0, reject_result, notes, order_status, after_sale_status, refund_apply_time, refund_agree_time, record_date, real_reason, real_reason_detail, real_reason_updated_at, real_reason_note_hash, quality_reason, quality_not_cancelled_reason, quality_reason_detail, quality_reason_updated_at, quality_reason_note_hash, record_id))
         self.conn.commit()
 
     def update_refund_amount(self, record_id, refund_amount):
@@ -2946,7 +4939,7 @@ class Database:
     def get_store_id_by_name(self, store_name):
         """根据店铺名称获取店铺ID"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id FROM stores WHERE store_name = ?', (store_name,))
+        cursor.execute('SELECT id FROM stores WHERE store_name = ? AND IFNULL(sync_deleted, 0)=0', (store_name,))
         result = cursor.fetchone()
         if result and isinstance(result, (tuple, list)) and len(result) > 0:
             return result[0] if isinstance(result[0], int) else int(result[0])
@@ -2977,11 +4970,18 @@ class Database:
             'notes': 'notes',
             'order_status': 'order_status',
             'after_sale_status': 'after_sale_status',
+            'refund_apply_time': 'refund_apply_time',
+            'refund_agree_time': 'refund_agree_time',
             'record_date': 'record_date',
             'real_refund_reason': 'real_refund_reason',
             'real_refund_reason_detail': 'real_refund_reason_detail',
             'real_refund_reason_updated_at': 'real_refund_reason_updated_at',
-            'real_refund_reason_note_hash': 'real_refund_reason_note_hash'
+            'real_refund_reason_note_hash': 'real_refund_reason_note_hash',
+            'quality_refund_reason': 'quality_refund_reason',
+            'quality_not_cancelled_reason': 'quality_not_cancelled_reason',
+            'quality_refund_reason_detail': 'quality_refund_reason_detail',
+            'quality_refund_reason_updated_at': 'quality_refund_reason_updated_at',
+            'quality_refund_reason_note_hash': 'quality_refund_reason_note_hash'
         }
         
         # 处理每个提供的字段
@@ -2996,9 +4996,6 @@ class Database:
         if not set_clauses:
             return False
             
-        # 添加记录ID作为WHERE条件
-        params.append(record_id)
-        
         # 执行更新
         cursor = self.conn.cursor()
         if 'notes' in kwargs:
@@ -3010,13 +5007,132 @@ class Database:
                     'real_refund_reason=?',
                     'real_refund_reason_detail=?',
                     'real_refund_reason_updated_at=?',
-                    'real_refund_reason_note_hash=?'
+                    'real_refund_reason_note_hash=?',
+                    'quality_refund_reason=?',
+                    'quality_not_cancelled_reason=?',
+                    'quality_refund_reason_detail=?',
+                    'quality_refund_reason_updated_at=?',
+                    'quality_refund_reason_note_hash=?'
                 ])
-                params.extend(['', '', '', ''])
+                params.extend(['', '', '', '', '', '', '', '', ''])
+
+        # 添加记录ID作为WHERE条件。必须在备注变更追加清空归因字段之后添加，
+        # 否则 WHERE id 会绑定到错误参数，导致备注保存不生效。
+        params.append(record_id)
         sql = f"UPDATE refund_records SET {', '.join(set_clauses)} WHERE id=?"
         cursor.execute(sql, params)
         self.conn.commit()
         
+        return cursor.rowcount > 0
+
+    def update_quality_refund_reason(self, record_id, quality_reason, not_cancelled_reason, detail="", note_hash="", updated_at=""):
+        """更新单条记录的品质退款原因分析结果。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE refund_records SET
+                quality_refund_reason = ?,
+                quality_not_cancelled_reason = ?,
+                quality_refund_reason_detail = ?,
+                quality_refund_reason_note_hash = ?,
+                quality_refund_reason_updated_at = ?
+            WHERE id = ?
+            ''',
+            (
+                str(quality_reason or '').strip(),
+                str(not_cancelled_reason or '').strip(),
+                str(detail or '').strip(),
+                str(note_hash or '').strip(),
+                str(updated_at or '').strip(),
+                record_id,
+            )
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_quality_not_cancelled_reason_categories(self, active_only=True):
+        """获取未撤销原因分类列表。"""
+        cursor = self.conn.cursor()
+        query = '''
+            SELECT id, category_name, status, sort_order, created_at, updated_at
+            FROM quality_not_cancelled_reason_categories
+            WHERE IFNULL(sync_deleted, 0)=0
+        '''
+        if active_only:
+            query += " AND status = 'ACTIVE'"
+        query += " ORDER BY sort_order ASC, id ASC"
+        cursor.execute(query)
+        return [
+            {
+                "id": row[0],
+                "category_name": row[1],
+                "status": row[2],
+                "sort_order": row[3],
+                "created_at": row[4],
+                "updated_at": row[5],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def save_quality_not_cancelled_reason_categories(self, categories):
+        """保存未撤销原因分类。支持字符串列表和配置字典列表。"""
+        cursor = self.conn.cursor()
+        cleaned = []
+        seen = set()
+        for index, item in enumerate(categories or []):
+            if isinstance(item, dict):
+                text = str(item.get("category_name") or item.get("name") or "").strip()
+                status = str(item.get("status") or "ACTIVE").strip() or "ACTIVE"
+                sort_order = int(item.get("sort_order", index) or 0)
+            else:
+                text = str(item or "").strip()
+                status = "ACTIVE"
+                sort_order = index
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            cleaned.append({
+                "category_name": text,
+                "status": status,
+                "sort_order": sort_order,
+            })
+
+        for item in cleaned:
+            cursor.execute(
+                '''
+                INSERT INTO quality_not_cancelled_reason_categories (category_name, status, sort_order)
+                VALUES (?, ?, ?)
+                ON CONFLICT(category_name) DO UPDATE SET
+                    status=excluded.status,
+                    sort_order=excluded.sort_order,
+                    updated_at=CURRENT_TIMESTAMP
+                ''',
+                (item["category_name"], item["status"], item["sort_order"])
+            )
+        self.conn.commit()
+        return cleaned
+
+    def update_quality_not_cancelled_reason(self, record_id, not_cancelled_reason, detail="", note_hash="", updated_at=""):
+        """更新单条记录的未撤销原因分析结果，不覆盖旧的品质退款原因字段。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE refund_records SET
+                quality_not_cancelled_reason = ?,
+                quality_refund_reason_detail = ?,
+                quality_refund_reason_note_hash = ?,
+                quality_refund_reason_updated_at = ?
+            WHERE id = ?
+            ''',
+            (
+                str(not_cancelled_reason or '').strip(),
+                str(detail or '').strip(),
+                str(note_hash or '').strip(),
+                str(updated_at or '').strip(),
+                record_id,
+            )
+        )
+        self.conn.commit()
         return cursor.rowcount > 0
 
     def delete_record(self, record_id):
@@ -3027,9 +5143,7 @@ class Database:
                 return False
                 
             cursor = self.conn.cursor()
-            cursor.execute('DELETE FROM refund_records WHERE id=?', (record_id,))
-            self.conn.commit()
-            return cursor.rowcount > 0  # 返回删除是否成功
+            return self._soft_delete('refund_records', 'id=?', (record_id,)) > 0
         except Exception as e:
             print(f"删除记录 {record_id} 时数据库错误: {e}")
             return False
@@ -3040,11 +5154,12 @@ class Database:
         cursor.execute('''
             SELECT r.id, r.order_no, r.spec_name, r.spec_code, r.reason,
                    r.real_refund_reason, r.real_refund_reason_detail, r.real_refund_reason_updated_at, r.real_refund_reason_note_hash,
+                   r.quality_refund_reason, r.quality_not_cancelled_reason, r.quality_refund_reason_detail, r.quality_refund_reason_updated_at, r.quality_refund_reason_note_hash,
                    r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.refund_apply_time, r.refund_agree_time, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
-            WHERE r.id=?
+            WHERE r.id=? AND IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
         ''', (record_id,))
         row = cursor.fetchone()
         if row:
@@ -3052,17 +5167,21 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'spec_name': row[2] or '', 'spec_code': row[3] or '',
                 'reason': row[4], 'real_refund_reason': row[5] or '', 'real_refund_reason_detail': row[6] or '',
                 'real_refund_reason_updated_at': row[7] or '', 'real_refund_reason_note_hash': row[8] or '',
-                'refund_amount': row[9], 'cancel': bool(row[10]), 'compensate': bool(row[11]), 'comp_amount': row[12],
-                'reject': bool(row[13]), 'reject_result': row[14], 'notes': row[15],
-                'order_status': row[16], 'after_sale_status': row[17],
-                'record_date': row[18], 'store_name': row[19], 'store_id': row[20]
+                'quality_refund_reason': row[9] or '', 'quality_not_cancelled_reason': row[10] or '',
+                'quality_refund_reason_detail': row[11] or '', 'quality_refund_reason_updated_at': row[12] or '',
+                'quality_refund_reason_note_hash': row[13] or '',
+                'refund_amount': row[14], 'cancel': bool(row[15]), 'compensate': bool(row[16]), 'comp_amount': row[17],
+                'reject': bool(row[18]), 'reject_result': row[19], 'notes': row[20],
+                'order_status': row[21], 'after_sale_status': row[22],
+                'refund_apply_time': row[23] or '', 'refund_agree_time': row[24] or '',
+                'record_date': row[25], 'store_name': row[26], 'store_id': row[27]
             }
         return None
 
     def is_order_no_exists(self, order_no):
         """检查订单号是否已存在"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id FROM refund_records WHERE order_no = ?', (order_no,))
+        cursor.execute('SELECT id FROM refund_records WHERE order_no = ? AND IFNULL(sync_deleted, 0)=0', (order_no,))
         return cursor.fetchone() is not None
 
     def get_record_by_order_no(self, order_no):
@@ -3071,11 +5190,12 @@ class Database:
         cursor.execute('''
             SELECT r.id, r.order_no, r.spec_name, r.spec_code, r.reason,
                    r.real_refund_reason, r.real_refund_reason_detail, r.real_refund_reason_updated_at, r.real_refund_reason_note_hash,
+                   r.quality_refund_reason, r.quality_not_cancelled_reason, r.quality_refund_reason_detail, r.quality_refund_reason_updated_at, r.quality_refund_reason_note_hash,
                    r.refund_amount, r.cancel, r.compensate, r.comp_amount, 
-                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.refund_apply_time, r.refund_agree_time, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
-            WHERE r.order_no=?
+            WHERE r.order_no=? AND IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
         ''', (order_no,))
         row = cursor.fetchone()
         if row:
@@ -3083,10 +5203,14 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'spec_name': row[2] or '', 'spec_code': row[3] or '',
                 'reason': row[4], 'real_refund_reason': row[5] or '', 'real_refund_reason_detail': row[6] or '',
                 'real_refund_reason_updated_at': row[7] or '', 'real_refund_reason_note_hash': row[8] or '',
-                'refund_amount': row[9], 'cancel': bool(row[10]), 'compensate': bool(row[11]), 'comp_amount': row[12],
-                'reject': bool(row[13]), 'reject_result': row[14], 'notes': row[15],
-                'order_status': row[16], 'after_sale_status': row[17],
-                'record_date': row[18], 'store_name': row[19], 'store_id': row[20]
+                'quality_refund_reason': row[9] or '', 'quality_not_cancelled_reason': row[10] or '',
+                'quality_refund_reason_detail': row[11] or '', 'quality_refund_reason_updated_at': row[12] or '',
+                'quality_refund_reason_note_hash': row[13] or '',
+                'refund_amount': row[14], 'cancel': bool(row[15]), 'compensate': bool(row[16]), 'comp_amount': row[17],
+                'reject': bool(row[18]), 'reject_result': row[19], 'notes': row[20],
+                'order_status': row[21], 'after_sale_status': row[22],
+                'refund_apply_time': row[23] or '', 'refund_agree_time': row[24] or '',
+                'record_date': row[25], 'store_name': row[26], 'store_id': row[27]
             }
         return None
 
@@ -3126,7 +5250,7 @@ class Database:
         cursor.execute('''
             SELECT order_no, store_name, current_round, end_time
             FROM reject_countdown
-            WHERE end_time > ?
+            WHERE end_time > ? AND IFNULL(sync_deleted, 0)=0
         ''', (now,))
         rows = cursor.fetchall()
         result = []
@@ -3141,29 +5265,27 @@ class Database:
 
     def delete_reject_countdown(self, order_no):
         """删除指定订单的驳回倒计时状态"""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM reject_countdown WHERE order_no = ?', (order_no,))
-        self.conn.commit()
+        self._soft_delete('reject_countdown', 'order_no = ?', (order_no,))
 
     def clear_expired_reject_countdowns(self):
         """清理已过期的驳回倒计时记录"""
-        cursor = self.conn.cursor()
         now = datetime.now().isoformat()
-        cursor.execute('DELETE FROM reject_countdown WHERE end_time < ?', (now,))
-        self.conn.commit()
+        self._soft_delete('reject_countdown', 'end_time < ?', (now,))
 
     def search_records(self, order_no='', reason='全部', cancel='全部',
-                       reject='全部', start_date=None, end_date=None, store_name='全部'):
+                       reject='全部', start_date=None, end_date=None,
+                       store_name='全部', real_reason=''):
         """根据条件搜索记录，返回结果列表"""
         cursor = self.conn.cursor()
         query = '''
             SELECT r.id, r.order_no, r.spec_name, r.spec_code, r.reason,
                    r.real_refund_reason, r.real_refund_reason_detail, r.real_refund_reason_updated_at, r.real_refund_reason_note_hash,
+                   r.quality_refund_reason, r.quality_not_cancelled_reason, r.quality_refund_reason_detail, r.quality_refund_reason_updated_at, r.quality_refund_reason_note_hash,
                    r.refund_amount, r.cancel, r.compensate, r.comp_amount,
-                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.refund_apply_time, r.refund_agree_time, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
-            WHERE 1=1
+            WHERE IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
         '''
         params = []
         if order_no:
@@ -3186,6 +5308,10 @@ class Database:
                 # 单选情况
                 query += ' AND r.reason = ?'
                 params.append(reason)
+        real_reason = str(real_reason or '').strip()
+        if real_reason:
+            query += ' AND r.real_refund_reason LIKE ?'
+            params.append(f'%{real_reason}%')
         if cancel != '全部':
             query += ' AND r.cancel = ?'
             params.append(1 if cancel == '是' else 0)
@@ -3210,11 +5336,15 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'spec_name': row[2] or '', 'spec_code': row[3] or '',
                 'reason': row[4], 'real_refund_reason': row[5] or '', 'real_refund_reason_detail': row[6] or '',
                 'real_refund_reason_updated_at': row[7] or '', 'real_refund_reason_note_hash': row[8] or '',
-                'refund_amount': row[9],
-                'cancel': bool(row[10]), 'compensate': bool(row[11]), 'comp_amount': row[12],
-                'reject': bool(row[13]), 'reject_result': row[14], 'notes': row[15],
-                'order_status': row[16], 'after_sale_status': row[17],
-                'record_date': row[18], 'store_name': row[19], 'store_id': row[20]
+                'quality_refund_reason': row[9] or '', 'quality_not_cancelled_reason': row[10] or '',
+                'quality_refund_reason_detail': row[11] or '', 'quality_refund_reason_updated_at': row[12] or '',
+                'quality_refund_reason_note_hash': row[13] or '',
+                'refund_amount': row[14],
+                'cancel': bool(row[15]), 'compensate': bool(row[16]), 'comp_amount': row[17],
+                'reject': bool(row[18]), 'reject_result': row[19], 'notes': row[20],
+                'order_status': row[21], 'after_sale_status': row[22],
+                'refund_apply_time': row[23] or '', 'refund_agree_time': row[24] or '',
+                'record_date': row[25], 'store_name': row[26], 'store_id': row[27]
             })
         return results
 
@@ -3225,11 +5355,12 @@ class Database:
         query = '''
             SELECT r.id, r.order_no, r.spec_name, r.spec_code, r.reason,
                    r.real_refund_reason, r.real_refund_reason_detail, r.real_refund_reason_updated_at, r.real_refund_reason_note_hash,
+                   r.quality_refund_reason, r.quality_not_cancelled_reason, r.quality_refund_reason_detail, r.quality_refund_reason_updated_at, r.quality_refund_reason_note_hash,
                    r.refund_amount, r.cancel, r.compensate, r.comp_amount,
-                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.record_date, s.store_name, r.store_id
+                   r.reject, r.reject_result, r.notes, r.order_status, r.after_sale_status, r.refund_apply_time, r.refund_agree_time, r.record_date, s.store_name, r.store_id
             FROM refund_records r
             JOIN stores s ON r.store_id = s.id
-            WHERE 1=1
+            WHERE IFNULL(r.sync_deleted, 0)=0 AND IFNULL(s.sync_deleted, 0)=0
         '''
         params = []
         
@@ -3264,11 +5395,15 @@ class Database:
                 'id': row[0], 'order_no': row[1], 'spec_name': row[2] or '', 'spec_code': row[3] or '',
                 'reason': row[4], 'real_refund_reason': row[5] or '', 'real_refund_reason_detail': row[6] or '',
                 'real_refund_reason_updated_at': row[7] or '', 'real_refund_reason_note_hash': row[8] or '',
-                'refund_amount': row[9],
-                'cancel': bool(row[10]), 'compensate': bool(row[11]), 'comp_amount': row[12],
-                'reject': bool(row[13]), 'reject_result': row[14], 'notes': row[15],
-                'order_status': row[16], 'after_sale_status': row[17],
-                'record_date': row[18], 'store_name': row[19], 'store_id': row[20]
+                'quality_refund_reason': row[9] or '', 'quality_not_cancelled_reason': row[10] or '',
+                'quality_refund_reason_detail': row[11] or '', 'quality_refund_reason_updated_at': row[12] or '',
+                'quality_refund_reason_note_hash': row[13] or '',
+                'refund_amount': row[14],
+                'cancel': bool(row[15]), 'compensate': bool(row[16]), 'comp_amount': row[17],
+                'reject': bool(row[18]), 'reject_result': row[19], 'notes': row[20],
+                'order_status': row[21], 'after_sale_status': row[22],
+                'refund_apply_time': row[23] or '', 'refund_agree_time': row[24] or '',
+                'record_date': row[25], 'store_name': row[26], 'store_id': row[27]
             })
         return results
 
@@ -3288,7 +5423,7 @@ class Database:
                 SUM(CASE WHEN reject = 1 AND reject_result = '成功' THEN 1 ELSE 0 END) as reject_success_count,
                 SUM(CASE WHEN reject = 1 THEN 1 ELSE 0 END) as reject_total_count
             FROM refund_records 
-            WHERE store_id = ? AND record_date BETWEEN ? AND ?
+            WHERE store_id = ? AND record_date BETWEEN ? AND ? AND IFNULL(sync_deleted, 0)=0
         '''
         
         params = [store_id, start_date, end_date]
@@ -3326,7 +5461,7 @@ class Database:
         reason_query = '''
             SELECT reason, COUNT(*) as count
             FROM refund_records
-            WHERE store_id = ? AND record_date BETWEEN ? AND ?
+            WHERE store_id = ? AND record_date BETWEEN ? AND ? AND IFNULL(sync_deleted, 0)=0
             GROUP BY reason
             ORDER BY count DESC
             LIMIT 1
@@ -3373,7 +5508,7 @@ class Database:
                 SUM(CASE WHEN reject = 1 AND reject_result = '成功' THEN 1 ELSE 0 END) as reject_success_count,
                 SUM(CASE WHEN reject = 1 THEN 1 ELSE 0 END) as reject_total_count
             FROM refund_records 
-            WHERE record_date BETWEEN ? AND ?
+            WHERE record_date BETWEEN ? AND ? AND IFNULL(sync_deleted, 0)=0
         '''
         
         params = [start_date, end_date]
@@ -3411,7 +5546,7 @@ class Database:
         reason_query = '''
             SELECT reason, COUNT(*) as count
             FROM refund_records
-            WHERE record_date BETWEEN ? AND ?
+            WHERE record_date BETWEEN ? AND ? AND IFNULL(sync_deleted, 0)=0
             GROUP BY reason
             ORDER BY count DESC
             LIMIT 1
@@ -3487,6 +5622,162 @@ class Database:
                 'model': 'deepseek-chat'
             }
 
+
+class CloudSyncDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.db = parent.db
+        self.setWindowTitle("云同步")
+        self.setMinimumWidth(520)
+        self._init_ui()
+        self.load_config()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.secret_id_edit = QLineEdit()
+        self.secret_key_edit = QLineEdit()
+        self.secret_key_edit.setEchoMode(QLineEdit.Password)
+        self.bucket_edit = QLineEdit()
+        self.region_edit = QLineEdit()
+        self.prefix_edit = QLineEdit()
+
+        self.secret_id_edit.setPlaceholderText("SecretId")
+        self.secret_key_edit.setPlaceholderText("SecretKey")
+        self.bucket_edit.setPlaceholderText("bucketname-appid")
+        self.region_edit.setPlaceholderText("ap-guangzhou")
+        self.prefix_edit.setPlaceholderText("shouhou-sync/")
+
+        form.addRow("SecretId：", self.secret_id_edit)
+        form.addRow("SecretKey：", self.secret_key_edit)
+        form.addRow("Bucket：", self.bucket_edit)
+        form.addRow("Region：", self.region_edit)
+        form.addRow("云端前缀：", self.prefix_edit)
+        layout.addLayout(form)
+
+        self.status_label = QLabel("配置只保存在本机，用于手动上传和下载增量数据。")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        button_layout = QHBoxLayout()
+        self.save_btn = QPushButton("保存配置")
+        self.test_btn = QPushButton("测试连接")
+        self.upload_btn = QPushButton("上传增量")
+        self.download_btn = QPushButton("下载增量")
+        self.close_btn = QPushButton("关闭")
+
+        for button in [self.save_btn, self.test_btn, self.upload_btn, self.download_btn, self.close_btn]:
+            button.setMinimumHeight(32)
+            button_layout.addWidget(button)
+
+        layout.addLayout(button_layout)
+        self.save_btn.clicked.connect(self.save_config)
+        self.test_btn.clicked.connect(self.test_connection)
+        self.upload_btn.clicked.connect(self.upload_incremental)
+        self.download_btn.clicked.connect(self.download_incremental)
+        self.close_btn.clicked.connect(self.reject)
+
+    def load_config(self):
+        config = self.db.load_cloud_sync_config()
+        self.secret_id_edit.setText(config.get('secret_id', ''))
+        self.secret_key_edit.setText(config.get('secret_key', ''))
+        self.bucket_edit.setText(config.get('bucket', ''))
+        self.region_edit.setText(config.get('region', ''))
+        self.prefix_edit.setText(config.get('prefix', 'shouhou-sync/'))
+
+    def collect_config(self):
+        prefix = self.prefix_edit.text().strip() or 'shouhou-sync/'
+        return {
+            'secret_id': self.secret_id_edit.text().strip(),
+            'secret_key': self.secret_key_edit.text().strip(),
+            'bucket': self.bucket_edit.text().strip(),
+            'region': self.region_edit.text().strip(),
+            'prefix': prefix,
+        }
+
+    def save_config(self):
+        self.db.save_cloud_sync_config(self.collect_config())
+        self.status_label.setText("配置已保存。")
+        QMessageBox.information(self, "云同步", "配置已保存")
+
+    def _service(self):
+        config = self.collect_config()
+        self.db.save_cloud_sync_config(config)
+        return CloudSyncService(self.db, config)
+
+    def _set_busy(self, busy):
+        for button in [self.save_btn, self.test_btn, self.upload_btn, self.download_btn, self.close_btn]:
+            button.setEnabled(not busy)
+        QApplication.processEvents()
+
+    def _run_with_progress(self, title, message, operation):
+        progress = QProgressDialog(message, None, 0, 0, self)
+        progress.setWindowTitle(title)
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._set_busy(True)
+        try:
+            QApplication.processEvents()
+            return operation()
+        finally:
+            progress.close()
+            self._set_busy(False)
+
+    def test_connection(self):
+        try:
+            self._run_with_progress("云同步", "正在测试腾讯云 COS 连接...", lambda: self._service().test_connection())
+            self.status_label.setText("连接测试成功。")
+            QMessageBox.information(self, "云同步", "连接测试成功")
+        except Exception as exc:
+            self.status_label.setText(f"连接失败：{exc}")
+            QMessageBox.warning(self, "云同步", f"连接失败：{exc}")
+
+    def upload_incremental(self):
+        try:
+            result = self._run_with_progress("云同步", "正在上传增量数据...", lambda: self._service().upload_incremental())
+            uploaded = result.get('uploaded', 0)
+            deduped = result.get('deduped', 0)
+            index_count = result.get('index_count', 0)
+            snapshot_count = result.get('snapshot_count', 0)
+            message = (
+                f"上传完成：{uploaded} 条变更，清理重复 {deduped} 条，云端索引 {index_count} 条，云端快照 {snapshot_count} 条。"
+                if uploaded or deduped or index_count or snapshot_count
+                else "没有需要上传的增量数据。"
+            )
+            self.status_label.setText(message)
+            QMessageBox.information(self, "云同步", message)
+        except Exception as exc:
+            self.status_label.setText(f"上传失败：{exc}")
+            QMessageBox.warning(self, "云同步", f"上传失败：{exc}")
+
+    def download_incremental(self):
+        try:
+            result = self._run_with_progress("云同步", "正在下载并合并增量数据...", lambda: self._service().download_incremental())
+            downloaded = result.get('downloaded', 0)
+            packages = result.get('packages', 0)
+            snapshot_restored = result.get('snapshot_restored', 0)
+            cloud_missing_deleted = result.get('cloud_missing_deleted', 0)
+            deduped = result.get('deduped', 0)
+            self.parent.refresh_after_cloud_sync()
+            message = (
+                f"下载完成：合并 {downloaded} 条变更，处理 {packages} 个增量包，"
+                f"快照恢复 {snapshot_restored} 条，云端缺失删除 {cloud_missing_deleted} 条，清理重复 {deduped} 条。"
+            )
+            if downloaded == 0 and snapshot_restored == 0 and cloud_missing_deleted == 0 and deduped == 0:
+                message = "没有需要下载的增量数据。"
+                if not result.get('index_found', False):
+                    message += " 云端暂无订单索引，未执行云端缺失删除。"
+                elif not result.get('snapshot_found', False):
+                    message += " 云端暂无订单快照，请在数据完整的电脑上传一次。"
+            self.status_label.setText(message)
+            QMessageBox.information(self, "云同步", message)
+        except Exception as exc:
+            self.status_label.setText(f"下载失败：{exc}")
+            QMessageBox.warning(self, "云同步", f"下载失败：{exc}")
+
 # ---------------------------- AI分析独立窗口 ---------------------------------
 class AIAnalysisWindow(QWidget):
     def __init__(self, panel_widget, parent=None):
@@ -3526,6 +5817,138 @@ class AIAnalysisWindow(QWidget):
         self.activateWindow()
 
 
+class DailyWorkSummaryDialog(QDialog):
+    """当前筛选范围内的日报/工作总结窗口。"""
+
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.latest_result = ""
+        self.setWindowTitle("工作总结")
+        self.resize(980, 760)
+        self._setup_ui()
+        self.refresh_preview()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self.filter_label = QLabel("")
+        self.filter_label.setWordWrap(True)
+        self.filter_label.setStyleSheet(
+            "font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold; "
+            "color: #1F2937; background-color: #EEF5FF; border: 1px solid #C9DAF8; "
+            "border-radius: 5px; padding: 6px 8px;"
+        )
+        layout.addWidget(self.filter_label)
+
+        text_style = """
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 8px;
+                line-height: 1.5;
+            }
+        """
+
+        manual_label = QLabel("今日补充工作内容")
+        manual_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold;")
+        layout.addWidget(manual_label)
+
+        self.manual_input = QTextEdit()
+        self.manual_input.setPlaceholderText("可以填写今天完成的工作、领航员标红问题、需要晚班客服跟踪的事项等。")
+        self.manual_input.setFont(QFont("Microsoft YaHei", 10))
+        self.manual_input.setMinimumHeight(100)
+        self.manual_input.textChanged.connect(self.refresh_preview)
+        layout.addWidget(self.manual_input, 1)
+
+        result_label = QLabel("AI专业总结")
+        result_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold;")
+        layout.addWidget(result_label)
+
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        self.result_text.setFont(QFont("Microsoft YaHei", 10))
+        self.result_text.setStyleSheet(text_style)
+        self.result_text.setMarkdown("点击“AI生成专业总结”后，将在这里显示日报/工作总结。")
+        layout.addWidget(self.result_text, 5)
+
+        button_layout = QHBoxLayout()
+        self.generate_btn = QPushButton("AI生成专业总结")
+        self.copy_btn = QPushButton("复制总结")
+        self.debug_prompt_btn = QPushButton("调试提示词")
+        close_btn = QPushButton("关闭")
+
+        self.generate_btn.clicked.connect(self.generate_summary)
+        self.copy_btn.clicked.connect(self.copy_result)
+        self.debug_prompt_btn.clicked.connect(self.show_debug_prompt)
+        close_btn.clicked.connect(self.accept)
+
+        button_layout.addWidget(self.generate_btn)
+        button_layout.addWidget(self.copy_btn)
+        button_layout.addWidget(self.debug_prompt_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+    def refresh_preview(self):
+        if not self.main_window:
+            return
+        self.filter_label.setText(f"当前筛选：{self.main_window.get_current_filter_summary_text()}")
+
+    def generate_summary(self):
+        if self.main_window:
+            self.main_window.generate_daily_work_summary_for_dialog(self)
+
+    def show_debug_prompt(self):
+        if self.main_window:
+            self.main_window.show_daily_work_summary_debug_prompt(self)
+
+    def set_result(self, markdown_text):
+        self.latest_result = str(markdown_text or "")
+        self.result_text.setMarkdown(self.latest_result or "AI未返回内容。")
+
+    def copy_result(self):
+        text = self.latest_result or self.result_text.toPlainText()
+        if not text.strip():
+            QMessageBox.information(self, "提示", "当前没有可复制的总结内容")
+            return
+        QApplication.clipboard().setText(self._plain_text_for_wechat(text))
+        QMessageBox.information(self, "复制成功", "工作总结已复制到剪贴板")
+
+    @staticmethod
+    def _plain_text_for_wechat(text):
+        """把Markdown结果清洗成适合微信聊天粘贴的纯文本。"""
+        cleaned_lines = []
+        for raw_line in str(text or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                cleaned_lines.append("")
+                continue
+            line = re.sub(r'^\s{0,3}#{1,6}\s*', '', line)
+            line = re.sub(r'^\s*[-*+]\s+', '', line)
+            line = re.sub(r'^\s*\d+[.)、]\s+', '', line)
+            line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)
+            line = re.sub(r'__(.*?)__', r'\1', line)
+            line = re.sub(r'\*(.*?)\*', r'\1', line)
+            line = re.sub(r'_(.*?)_', r'\1', line)
+            line = re.sub(r'`([^`]*)`', r'\1', line)
+            if '|' in line:
+                line = re.sub(r'\s*\|\s*', '  ', line).strip()
+            if re.fullmatch(r'[-:\s|]+', line):
+                continue
+            cleaned_lines.append(line)
+
+        text = "\n".join(cleaned_lines)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
+    def get_user_text(self):
+        return self.manual_input.toPlainText().strip()
+
+
 # ---------------------------- 主窗口类 ---------------------------------
 class RefundManager(QMainWindow):
     def __init__(self):
@@ -3554,11 +5977,13 @@ class RefundManager(QMainWindow):
         self.latest_summary_history_id = None
         self.latest_summary_debug_data = {}
         self.db.ensure_default_real_refund_reason_categories(self._get_default_real_reason_category_configs())
+        self._merge_default_real_reason_keywords()
         
         self.init_ui()
         # 初始化店铺设置
         self.load_store_settings()
         self.load_stores()
+        self._auto_fill_missing_spec_codes_from_names()
         self.load_table_data()
         self.setup_shortcuts()
         
@@ -3778,9 +6203,9 @@ class RefundManager(QMainWindow):
         self.real_reason_manual_btn.clicked.connect(self.open_manual_real_reason_assignment)
         summary_action_layout.addWidget(self.real_reason_manual_btn)
 
-        self.real_reason_view_btn = QPushButton("查看真实退款原因")
+        self.real_reason_view_btn = QPushButton("查看品质退款")
         self.real_reason_view_btn.setStyleSheet(self.orange_button_style)
-        self.real_reason_view_btn.clicked.connect(self.show_real_refund_reason_view)
+        self.real_reason_view_btn.clicked.connect(self.show_quality_refund_reason_view)
         summary_action_layout.addWidget(self.real_reason_view_btn)
 
         self.current_range_reason_btn = QPushButton("当前范围归因")
@@ -3905,6 +6330,13 @@ class RefundManager(QMainWindow):
         self.store_settings_btn.setToolTip("店铺基本信息设置")
         self.store_settings_btn.clicked.connect(self.open_store_settings)
         store_info_layout.addWidget(self.store_settings_btn)
+
+        self.daily_work_summary_btn = QPushButton("工作总结")
+        self.daily_work_summary_btn.setStyleSheet(self.orange_button_style)
+        self.daily_work_summary_btn.setToolTip("根据当前筛选范围生成日报/工作总结")
+        self.daily_work_summary_btn.clicked.connect(self.show_daily_work_summary_dialog)
+        store_info_layout.addWidget(self.daily_work_summary_btn)
+
         store_info_layout.addStretch()
         
         # 左下角：搜索筛选区 - 使用UI文件
@@ -3914,6 +6346,7 @@ class RefundManager(QMainWindow):
         self.search_store_combo = search_group.findChild(QComboBox, "search_store_combo")
         self.search_order_edit = search_group.findChild(QLineEdit, "search_order_edit")
         self.search_reason_btn = search_group.findChild(QPushButton, "search_reason_btn")
+        self.search_real_reason_edit = search_group.findChild(QLineEdit, "search_real_reason_edit")
         self.start_date_edit = search_group.findChild(QDateEdit, "start_date_edit")
         self.end_date_edit = search_group.findChild(QDateEdit, "end_date_edit")
         self.search_cancel_combo = search_group.findChild(QComboBox, "search_cancel_combo")
@@ -3928,7 +6361,6 @@ class RefundManager(QMainWindow):
         today_btn = quick_date_group.findChild(QPushButton, "today_btn")
         yesterday_btn = quick_date_group.findChild(QPushButton, "yesterday_btn")
         prev_day_btn = quick_date_group.findChild(QPushButton, "prev_day_btn")
-        next_day_btn = quick_date_group.findChild(QPushButton, "next_day_btn")
         week_btn = quick_date_group.findChild(QPushButton, "week_btn")
         month_btn = quick_date_group.findChild(QPushButton, "month_btn")
         full_week_btn = quick_date_group.findChild(QPushButton, "full_week_btn")
@@ -3949,6 +6381,9 @@ class RefundManager(QMainWindow):
         # 设置订单号输入框
         self.search_order_edit.textChanged.connect(self.on_search_changed)
         self.search_order_edit.mousePressEvent = self.search_order_mouse_press
+
+        if self.search_real_reason_edit is not None:
+            self.search_real_reason_edit.textChanged.connect(self.on_search_changed)
         
         # 设置退款原因多选控件
         reasons = ["商品腐败、变质、包装胀气等", "商品破损/压坏", "质量问题", "大小/规格/重量等与商品描述不符", "品种/标签/图片/包装等与商品描述不符", "货物与描述不符", "生产日期/保质期与商品描述不符", "其他"]
@@ -3990,7 +6425,6 @@ class RefundManager(QMainWindow):
         today_btn.clicked.connect(lambda: self.set_quick_date(0))
         yesterday_btn.clicked.connect(lambda: self.set_quick_date(1))
         prev_day_btn.clicked.connect(self.previous_day)
-        next_day_btn.clicked.connect(self.next_day)
         week_btn.clicked.connect(lambda: self.set_quick_date(7))
         month_btn.clicked.connect(lambda: self.set_quick_date(30))
         full_week_btn.clicked.connect(self.set_last_full_week)
@@ -4018,18 +6452,18 @@ class RefundManager(QMainWindow):
         
         # 为订单号、退款原因列设置特殊拉伸模式，确保字符显示完整
         self.table.setColumnWidth(1, 200)  # 订单号列设置较宽宽度
-        self.table.setColumnWidth(2, 80)   # 规格编码
-        self.table.setColumnWidth(3, 250)  # 退款原因列设置较宽宽度
+        self.table.setColumnWidth(2, 75)   # 规格编码
+        self.table.setColumnWidth(3, 245)  # 退款原因列设置较宽宽度
         
         # 其他列使用默认宽度
         self.table.setColumnWidth(0, 120)  # 店铺名称
-        self.table.setColumnWidth(4, 100)  # 退款金额
-        self.table.setColumnWidth(5, 60)   # 撤销
-        self.table.setColumnWidth(6, 80)   # 打款补偿
-        self.table.setColumnWidth(7, 100)  # 补偿金额
-        self.table.setColumnWidth(8, 60)   # 驳回
+        self.table.setColumnWidth(4, 95)   # 退款金额
+        self.table.setColumnWidth(5, 57)   # 撤销
+        self.table.setColumnWidth(6, 77)   # 打款补偿
+        self.table.setColumnWidth(7, 92)   # 补偿金额
+        self.table.setColumnWidth(8, 58)   # 驳回
         self.table.setColumnWidth(9, 100)  # 驳回结果
-        self.table.setColumnWidth(10, 100) # 登记日期
+        self.table.setColumnWidth(10, 96)  # 登记日期
         
         # 设置列宽调整策略
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 订单号：根据内容调整
@@ -4316,7 +6750,7 @@ class RefundManager(QMainWindow):
             print(f"[DEBUG] 退款原因下拉框对象类型: {type(self.reason_combo)}")
         
         # 备注
-        self.notes_edit = self.input_panel.findChild(QTextEdit, "notes_edit")
+        self.notes_edit = self.input_panel.findChild(QLineEdit, "notes_edit")
         
         # 操作按钮
         self.add_btn = self.input_panel.findChild(QPushButton, "add_btn")
@@ -4394,10 +6828,12 @@ class RefundManager(QMainWindow):
         # 查找导入导出按钮
         self.import_btn = self.input_panel.findChild(QPushButton, "import_btn")
         self.export_btn = self.input_panel.findChild(QPushButton, "export_btn")
+        self.cloud_sync_btn = self.input_panel.findChild(QPushButton, "cloud_sync_btn")
         
         # 调试信息
         print(f"[DEBUG] 导入按钮找到: {self.import_btn is not None}")
         print(f"[DEBUG] 导出按钮找到: {self.export_btn is not None}")
+        print(f"[DEBUG] 云同步按钮找到: {self.cloud_sync_btn is not None}")
         
         # 连接信号
         if self.import_btn:
@@ -4406,6 +6842,9 @@ class RefundManager(QMainWindow):
         if self.export_btn:
             self.export_btn.clicked.connect(self.export_excel)
             print("[DEBUG] 导出按钮信号已连接")
+        if self.cloud_sync_btn:
+            self.cloud_sync_btn.clicked.connect(self.open_cloud_sync_dialog)
+            print("[DEBUG] 云同步按钮信号已连接")
 
         self._setup_ai_window_button()
 
@@ -4421,12 +6860,19 @@ class RefundManager(QMainWindow):
         self.open_ai_window_btn = QPushButton("分析")
         self.open_ai_window_btn.setMinimumHeight(30)
         self.open_ai_window_btn.clicked.connect(self.open_ai_window)
+        self.reidentify_spec_code_btn = QPushButton("识别规格")
+        self.reidentify_spec_code_btn.setMinimumHeight(30)
+        self.reidentify_spec_code_btn.setToolTip("重新识别所有已录入规格名称订单的规格编码")
+        self.reidentify_spec_code_btn.clicked.connect(self.reidentify_spec_codes_from_names)
         placeholder_layout = placeholder.layout()
         if placeholder_layout is None:
             placeholder_layout = QHBoxLayout(placeholder)
             placeholder_layout.setContentsMargins(0, 0, 0, 0)
-            placeholder_layout.setSpacing(0)
+            placeholder_layout.setSpacing(4)
+        else:
+            placeholder_layout.setSpacing(4)
         placeholder_layout.addWidget(self.open_ai_window_btn)
+        placeholder_layout.addWidget(self.reidentify_spec_code_btn)
 
     def _optimize_input_panel_layout(self):
         """压缩主要功能区控件尺寸，使其适配更窄的中间列。"""
@@ -4486,9 +6932,6 @@ class RefundManager(QMainWindow):
             self.notes_edit.setMinimumHeight(30)
             self.notes_edit.setMaximumHeight(32)
             self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            self.notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            self.notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            self.notes_edit.setLineWrapMode(QTextEdit.NoWrap)
 
         for checkbox in [self.cancel_check, self.compensate_check, self.reject_check]:
             if not checkbox:
@@ -4501,7 +6944,7 @@ class RefundManager(QMainWindow):
 
         compact_buttons = [
             self.add_store_btn, self.edit_store_btn, self.delete_store_btn,
-            self.import_btn, self.export_btn, self.add_btn,
+            self.import_btn, self.export_btn, getattr(self, 'cloud_sync_btn', None), self.add_btn,
             self.update_btn, self.clear_btn
         ]
         for button in compact_buttons:
@@ -4514,13 +6957,18 @@ class RefundManager(QMainWindow):
             button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
             button.setStyleSheet((button.styleSheet() or "") + "padding: 2px 8px;")
 
-        if hasattr(self, 'open_ai_window_btn') and self.open_ai_window_btn:
-            font = QFont(self.open_ai_window_btn.font())
+        for button in [
+            getattr(self, 'open_ai_window_btn', None),
+            getattr(self, 'reidentify_spec_code_btn', None)
+        ]:
+            if not button:
+                continue
+            font = QFont(button.font())
             font.setPointSize(10)
-            self.open_ai_window_btn.setFont(font)
-            self.open_ai_window_btn.setMinimumHeight(30)
-            self.open_ai_window_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
-            self.open_ai_window_btn.setStyleSheet((self.open_ai_window_btn.styleSheet() or "") + "padding: 2px 8px;")
+            button.setFont(font)
+            button.setMinimumHeight(30)
+            button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            button.setStyleSheet((button.styleSheet() or "") + "padding: 2px 8px;")
 
         placeholder = self.input_panel.findChild(QWidget, "ai_button_placeholder")
         if placeholder:
@@ -4563,6 +7011,72 @@ class RefundManager(QMainWindow):
         self.ai_window.show()
         self.ai_window.raise_()
         self.ai_window.activateWindow()
+
+    def open_cloud_sync_dialog(self):
+        """打开腾讯云 COS 增量同步窗口。"""
+        dialog = CloudSyncDialog(self)
+        dialog.exec_()
+
+    def upload_cloud_sync_shortcut(self):
+        """Ctrl+S 快捷上传云端增量。"""
+        config = self.db.load_cloud_sync_config()
+        missing = [
+            name for name, label in [
+                ('secret_id', 'SecretId'),
+                ('secret_key', 'SecretKey'),
+                ('bucket', 'Bucket'),
+                ('region', 'Region'),
+            ]
+            if not str(config.get(name) or '').strip()
+        ]
+        if missing:
+            QMessageBox.warning(self, "云同步", "请先点击“云同步”填写并保存腾讯云配置。")
+            return
+
+        progress = QProgressDialog("正在上传增量数据...", None, 0, 0, self)
+        progress.setWindowTitle("云同步")
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
+        try:
+            result = CloudSyncService(self.db, config).upload_incremental()
+            uploaded = result.get('uploaded', 0)
+            deduped = result.get('deduped', 0)
+            index_count = result.get('index_count', 0)
+            snapshot_count = result.get('snapshot_count', 0)
+            message = (
+                f"上传完成：{uploaded} 条变更，清理重复 {deduped} 条，云端索引 {index_count} 条，云端快照 {snapshot_count} 条。"
+                if uploaded or deduped or index_count or snapshot_count
+                else "没有需要上传的增量数据。"
+            )
+            self.status_bar.showMessage(message, 3000)
+            self.show_tooltip(message, "rgba(76, 175, 80, 0.95)" if uploaded else "rgba(255, 193, 7, 0.95)", 1500)
+        except Exception as exc:
+            QMessageBox.warning(self, "云同步", f"上传失败：{exc}")
+        finally:
+            progress.close()
+
+    def refresh_after_cloud_sync(self):
+        """云端增量合并后刷新主界面数据。"""
+        self._cached_records = None
+        self._last_search_params = None
+        self.load_stores()
+        if hasattr(self, 'search_store_combo'):
+            current = self.search_store_combo.currentText()
+            self.search_store_combo.blockSignals(True)
+            self.search_store_combo.clear()
+            self.search_store_combo.addItem("全部")
+            for _, store_name in self.db.get_stores():
+                self.search_store_combo.addItem(store_name)
+            if current:
+                index = self.search_store_combo.findText(current)
+                self.search_store_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.search_store_combo.blockSignals(False)
+        self.load_table_data(force_reload=True)
+        self.update_store_stats_display()
+        if hasattr(self, 'status_bar'):
+            self.status_bar.showMessage("云同步数据已刷新", 3000)
 
     def ensure_ai_window_visible(self):
         """确保AI分析窗口保持可见，除非用户手动关闭。"""
@@ -4620,7 +7134,9 @@ class RefundManager(QMainWindow):
                     record.get('order_status', ''),
                     record.get('after_sale_status', ''),
                     record.get('spec_name', ''),
-                    record.get('spec_code', '')
+                    record.get('spec_code', ''),
+                    record.get('refund_apply_time', ''),
+                    record.get('refund_agree_time', '')
                 )
                 restored_count += 1
             except Exception as e:
@@ -4915,6 +7431,15 @@ class RefundManager(QMainWindow):
         return text
 
     @classmethod
+    def _display_reject_result_value(cls, record):
+        text = cls._normalize_reject_result_value(record.get('reject_result'))
+        if not bool(record.get('reject')):
+            return text
+        if text in ("", "-", "无", "None"):
+            return "驳回中"
+        return text
+
+    @classmethod
     def _is_reject_success_record(cls, record):
         return bool(record.get('reject')) and cls._normalize_reject_result_value(record.get('reject_result')) == "驳回成功"
 
@@ -5007,6 +7532,7 @@ class RefundManager(QMainWindow):
         widgets = [
             getattr(self, 'search_store_combo', None),
             getattr(self, 'search_order_edit', None),
+            getattr(self, 'search_real_reason_edit', None),
             getattr(self, 'search_cancel_combo', None),
             getattr(self, 'search_reject_combo', None),
             getattr(self, 'start_date_edit', None),
@@ -5410,7 +7936,7 @@ class RefundManager(QMainWindow):
         self.setStyleSheet(stylesheet)
 
     def setup_shortcuts(self):
-        QShortcut(QKeySequence("Ctrl+S"), self, self.add_record)
+        QShortcut(QKeySequence("Ctrl+S"), self, self.upload_cloud_sync_shortcut)
         QShortcut(QKeySequence("Ctrl+E"), self, self.export_excel)
         QShortcut(QKeySequence("Ctrl+F"), self, lambda: self.search_order_edit.setFocus())
         QShortcut(QKeySequence("Ctrl+D"), self, self.delete_record)
@@ -5739,6 +8265,77 @@ class RefundManager(QMainWindow):
         except Exception:
             return self.get_current_date()
 
+    def _parse_import_datetime_value(self, raw_value):
+        """解析导入时间，成功时保留到秒，失败返回空字符串。"""
+        if raw_value in (None, ''):
+            return ''
+
+        if isinstance(raw_value, datetime):
+            return raw_value.strftime('%Y-%m-%d %H:%M:%S')
+
+        text = str(raw_value).strip()
+        if not text:
+            return ''
+
+        formats = [
+            '%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S', '%Y.%m.%d %H:%M:%S',
+            '%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M',
+            '%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d',
+            '%m-%d %H:%M:%S', '%m/%d %H:%M:%S', '%m.%d %H:%M:%S',
+            '%m-%d %H:%M', '%m/%d %H:%M', '%m.%d %H:%M',
+            '%H:%M:%S', '%H:%M'
+        ]
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(text, fmt)
+                if fmt.startswith('%m'):
+                    parsed = parsed.replace(year=datetime.now().year)
+                elif fmt.startswith('%H'):
+                    now = datetime.now()
+                    parsed = parsed.replace(year=now.year, month=now.month, day=now.day)
+                return parsed.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                continue
+        return ''
+
+    @staticmethod
+    def _format_export_process_time(value):
+        if not value:
+            return ''
+        try:
+            parsed = datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S')
+            return parsed.strftime('%m-%d %H:%M:%S')
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _format_refund_process_duration(apply_time, agree_time):
+        if not apply_time or not agree_time:
+            return ''
+        try:
+            start = datetime.strptime(str(apply_time), '%Y-%m-%d %H:%M:%S')
+            end = datetime.strptime(str(agree_time), '%Y-%m-%d %H:%M:%S')
+        except Exception:
+            return ''
+        seconds = int((end - start).total_seconds())
+        if seconds < 0:
+            return ''
+        if seconds < 60:
+            return f"{seconds}秒"
+
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            parts = [f"{hours}小时"]
+            if minutes:
+                parts.append(f"{minutes}分")
+            if seconds:
+                parts.append(f"{seconds}秒")
+            return ''.join(parts)
+        if seconds:
+            return f"{minutes}分{seconds}秒"
+        return f"{minutes}分钟"
+
     def _resolve_import_record_date(self, row, column_mapping):
         """严格按用户确认后的映射列读取登记日期。"""
         raw_value = self._extract_mapped_value(row, column_mapping, '登记日期', '')
@@ -5794,6 +8391,16 @@ class RefundManager(QMainWindow):
         cancel_item.setBackground(QColor("#4CAF50" if rec['cancel'] else "#F44336"))
         cancel_item.setForeground(QColor("white"))
         cancel_item.setTextAlignment(Qt.AlignCenter)
+        if not rec['cancel']:
+            reason_text = str(rec.get('quality_not_cancelled_reason') or '').strip() or "未明确说明未撤销原因"
+            tooltip_lines = [f"未撤销原因：{reason_text}"]
+            detail_text = str(rec.get('quality_refund_reason_detail') or '').strip()
+            updated_at = str(rec.get('quality_refund_reason_updated_at') or '').strip()
+            if detail_text:
+                tooltip_lines.append(f"识别说明：{detail_text}")
+            if updated_at:
+                tooltip_lines.append(f"识别时间：{updated_at}")
+            cancel_item.setToolTip("\n".join(tooltip_lines))
         self.table.setItem(row, 5, cancel_item)
 
         comp_text = "是" if rec['compensate'] else "否"
@@ -5816,7 +8423,7 @@ class RefundManager(QMainWindow):
         reject_item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row, 8, reject_item)
 
-        reject_result_item = QTableWidgetItem(rec['reject_result'])
+        reject_result_item = QTableWidgetItem(self._display_reject_result_value(rec))
         reject_result_item.setTextAlignment(Qt.AlignCenter)
         if store_color:
             reject_result_item.setBackground(QColor(store_color))
@@ -5924,13 +8531,18 @@ class RefundManager(QMainWindow):
             if not reason:
                 QMessageBox.warning(self, "警告", "请选择退款原因！")
                 return
-            refund_amount = float(self.refund_amount_edit.text())
+            try:
+                refund_amount = float(self.refund_amount_edit.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "警告", "退款金额必须为有效数字！")
+                return
             cancel = self.cancel_check.isChecked()
             compensate = self.compensate_check.isChecked()
             comp_amount = 0.0
             if compensate:
                 try:
-                    comp_amount = float(self.comp_amount_edit.text()) if self.comp_amount_edit.text() else 0.0
+                    comp_amount_text = self.comp_amount_edit.text().strip()
+                    comp_amount = float(comp_amount_text) if comp_amount_text else 0.0
                 except ValueError:
                     QMessageBox.warning(self, "警告", "补偿金额必须为有效数字！")
                     return
@@ -5942,7 +8554,7 @@ class RefundManager(QMainWindow):
                 if reject_result == "-":
                     reject_result = "驳回成功"
             
-            notes = self.notes_edit.toPlainText().strip()
+            notes = self.notes_edit.text().strip()
             
             record_date = self.get_current_date()
             existing = self.db.get_record_by_order_no(order_no)
@@ -6001,7 +8613,7 @@ class RefundManager(QMainWindow):
             if reject_result == "-":
                 reject_result = "驳回成功"
         
-        notes = self.notes_edit.toPlainText().strip()
+        notes = self.notes_edit.text().strip()
         
         existing_record = self.db.get_record_by_id(self.current_record_id)
         record_date = self.get_current_date()
@@ -6180,10 +8792,15 @@ class RefundManager(QMainWindow):
             store_name = self.search_store_combo.currentText()
             start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
             end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+            real_reason = ""
+            if hasattr(self, 'search_real_reason_edit') and self.search_real_reason_edit is not None:
+                real_reason = self.search_real_reason_edit.text().strip()
 
             reason_param = "全部" if not reasons else reasons
             
-            return self.db.search_records(order_no, reason_param, cancel, reject, start_date, end_date, store_name)
+            return self.db.search_records(
+                order_no, reason_param, cancel, reject, start_date, end_date, store_name, real_reason
+            )
         except Exception as e:
             print(f"[ERROR] get_filtered_records: 异常: {type(e).__name__}: {e}")
             import traceback
@@ -6367,9 +8984,13 @@ class RefundManager(QMainWindow):
         reasons = []
         if hasattr(self, 'search_reason_dropdown'):
             reasons = list(self.search_reason_dropdown.selected_items)
+        real_reason = ""
+        if hasattr(self, 'search_real_reason_edit') and self.search_real_reason_edit is not None:
+            real_reason = self.search_real_reason_edit.text().strip()
         
         return (
             self.search_order_edit.text(),
+            real_reason,
             tuple(reasons) if reasons else (),
             self.search_cancel_combo.currentText(),
             self.search_reject_combo.currentText(),
@@ -6413,6 +9034,21 @@ class RefundManager(QMainWindow):
                 current_compensate != expected_compensate or 
                 current_reject != expected_reject):
                 return True
+
+            current_cancel_tooltip = self.table.item(row, 5).toolTip() if self.table.item(row, 5) else ""
+            expected_cancel_tooltip = ""
+            if not record['cancel']:
+                reason_text = str(record.get('quality_not_cancelled_reason') or '').strip() or "未明确说明未撤销原因"
+                tooltip_lines = [f"未撤销原因：{reason_text}"]
+                detail_text = str(record.get('quality_refund_reason_detail') or '').strip()
+                updated_at = str(record.get('quality_refund_reason_updated_at') or '').strip()
+                if detail_text:
+                    tooltip_lines.append(f"识别说明：{detail_text}")
+                if updated_at:
+                    tooltip_lines.append(f"识别时间：{updated_at}")
+                expected_cancel_tooltip = "\n".join(tooltip_lines)
+            if current_cancel_tooltip != expected_cancel_tooltip:
+                return True
             
             # 检查补偿金额
             current_comp_amount_text = self.table.item(row, 7).text() if self.table.item(row, 7) else "¥0.00"
@@ -6422,7 +9058,7 @@ class RefundManager(QMainWindow):
             
             # 检查驳回结果
             current_reject_result = self.table.item(row, 9).text() if self.table.item(row, 9) else ""
-            if current_reject_result != record['reject_result']:
+            if current_reject_result != self._display_reject_result_value(record):
                 return True
             
             # 检查日期
@@ -6485,6 +9121,8 @@ class RefundManager(QMainWindow):
         self._search_timer.stop()
         blockers = self._create_search_signal_blockers()
         self.search_order_edit.clear()
+        if hasattr(self, 'search_real_reason_edit') and self.search_real_reason_edit is not None:
+            self.search_real_reason_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
         if hasattr(self, 'search_reason_dropdown'):
             self.search_reason_dropdown.clear_selection()  # 清空多选状态
@@ -6503,6 +9141,8 @@ class RefundManager(QMainWindow):
 
         # 清除所有筛选条件
         self.search_order_edit.clear()
+        if hasattr(self, 'search_real_reason_edit') and self.search_real_reason_edit is not None:
+            self.search_real_reason_edit.clear()
         self.search_store_combo.setCurrentIndex(0)  # 全部
         if hasattr(self, 'search_reason_dropdown'):
             self.search_reason_dropdown.clear_selection()  # 清空多选状态
@@ -7513,13 +10153,170 @@ class RefundManager(QMainWindow):
         self.show_refresh_tooltip()
 
     # ---------------------------- 导入导出功能 ---------------------------------
+    def _get_export_headers(self, include_process_analysis=False):
+        headers = ["店铺名称", "订单号", "规格编码", "退款原因", "退款金额", "撤销", "打款补偿", "补偿金额", "驳回", "驳回结果", "登记日期", "备注"]
+        if include_process_analysis:
+            headers.extend(["申请时间", "同意退款时间", "退款处理时长"])
+        return headers
+
+    def _collect_current_export_rows(self):
+        """收集当前表格可见行，导出严格跟随当前筛选结果。"""
+        export_rows = []
+        for row_idx in range(self.table.rowCount()):
+            row_data = []
+            record = None
+            for col in range(12):
+                item = self.table.item(row_idx, col)
+                text = item.text() if item else ""
+
+                if col in [4, 7]:  # 退款金额、补偿金额
+                    text = text.replace('¥', '').replace(',', '')
+
+                if col == 10:  # 登记日期
+                    record_id = self.get_record_id_from_row(row_idx)
+                    if record_id:
+                        record = self.db.get_record_by_id(record_id)
+                        if record and record.get('record_date'):
+                            text = record['record_date']
+
+                row_data.append(text)
+
+            export_rows.append({
+                "store_name": row_data[0] or "未知店铺",
+                "row_data": row_data,
+                "refund_apply_time": (record or {}).get("refund_apply_time", ""),
+                "refund_agree_time": (record or {}).get("refund_agree_time", ""),
+            })
+        return export_rows
+
+    def _group_export_rows_by_store(self, export_rows):
+        grouped_rows = {}
+        for row in export_rows:
+            store_name = row.get("store_name") or "未知店铺"
+            grouped_rows.setdefault(store_name, []).append(row)
+        return grouped_rows
+
+    def _choose_export_options(self, has_multiple_stores):
+        """选择订单导出选项。"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("导出选项")
+        layout = QVBoxLayout(dialog)
+
+        mode_combo = None
+        if has_multiple_stores:
+            layout.addWidget(QLabel("当前导出内容包含多个店铺，请选择导出方式："))
+            mode_combo = QComboBox()
+            mode_combo.addItem("单表格模式", "single_table")
+            mode_combo.addItem("独立Sheet模式", "independent_sheet")
+            layout.addWidget(mode_combo)
+
+        process_check = QCheckBox("追加申请时间、同意退款时间和退款处理时长")
+        layout.addWidget(process_check)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+
+        return {
+            "mode": mode_combo.currentData() if mode_combo else "single_table",
+            "include_process_analysis": process_check.isChecked(),
+        }
+
+    def _check_export_file_available(self, file_path):
+        if not os.path.exists(file_path):
+            return True
+        try:
+            with open(file_path, 'a', encoding='utf-8'):
+                pass
+            return True
+        except PermissionError:
+            QMessageBox.warning(
+                self,
+                "文件被占用",
+                f"文件 '{os.path.basename(file_path)}' 正在被其他程序使用！\n\n请先关闭该文件，然后重试。"
+            )
+            return False
+
+    def _write_refund_export_sheet(self, ws, export_rows, include_process_analysis=False):
+        headers = self._get_export_headers(include_process_analysis)
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                             top=Side(style='thin'), bottom=Side(style='thin'))
+        center_alignment = Alignment(horizontal="center", vertical="center")
+
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+
+        for row in export_rows:
+            row_data = list(row["row_data"])
+            if include_process_analysis:
+                apply_time = row.get("refund_apply_time", "")
+                agree_time = row.get("refund_agree_time", "")
+                row_data.extend([
+                    self._format_export_process_time(apply_time),
+                    self._format_export_process_time(agree_time),
+                    self._format_refund_process_duration(apply_time, agree_time),
+                ])
+            ws.append(row_data)
+
+        for row_idx in range(2, len(export_rows) + 2):
+            for col_idx in range(1, len(headers) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.alignment = center_alignment
+                cell.border = thin_border
+
+                if col_idx in [5, 8]:  # 退款金额、补偿金额
+                    try:
+                        if cell.value not in (None, ""):
+                            cell.value = float(cell.value)
+                    except Exception:
+                        pass
+
+                if col_idx == 11:  # 登记日期
+                    try:
+                        if cell.value:
+                            date_obj = datetime.strptime(str(cell.value), '%Y-%m-%d')
+                            cell.value = date_obj
+                            cell.number_format = 'YYYY-MM-DD'
+                    except Exception:
+                        pass
+
+        for col in ws.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except Exception:
+                    pass
+            ws.column_dimensions[col_letter].width = min(max_length + 2, 30)
+
     def export_excel(self):
         """导出当前表格数据到Excel"""
-        # 获取当前表格中显示的数据（筛选后的）
-        rows = self.table.rowCount()
-        if rows == 0:
+        export_rows = self._collect_current_export_rows()
+        if not export_rows:
             QMessageBox.information(self, "提示", "没有数据可导出")
             return
+
+        grouped_rows = self._group_export_rows_by_store(export_rows)
+        export_options = self._choose_export_options(len(grouped_rows) > 1)
+        if not export_options:
+            return
+        export_mode = export_options["mode"]
+        include_process_analysis = export_options["include_process_analysis"]
 
         # 选择保存路径
         default_name = f"退款记录_{datetime.now().strftime('%Y%m%d')}.xlsx"
@@ -7528,103 +10325,26 @@ class RefundManager(QMainWindow):
             return
 
         try:
-            # 检查文件是否被占用
-            import os
-            if os.path.exists(file_path):
-                try:
-                    # 尝试以写入模式打开文件，如果被占用会抛出异常
-                    with open(file_path, 'a', encoding='utf-8') as f:
-                        pass
-                except PermissionError:
-                    QMessageBox.warning(self, "文件被占用", 
-                                       f"文件 '{os.path.basename(file_path)}' 正在被其他程序使用！\n\n请先关闭该文件，然后重试。")
-                    return
-            
+            if not self._check_export_file_available(file_path):
+                return
+
             wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "退款记录"
-
-            # 表头 - 包含所有12列数据
-            headers = ["店铺名称", "订单号", "规格编码", "退款原因", "退款金额", "撤销", "打款补偿", "补偿金额", "驳回", "驳回结果", "登记日期", "备注"]
-            ws.append(headers)
-
-            # 样式
-            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-            header_font = Font(color="FFFFFF", bold=True)
-            header_alignment = Alignment(horizontal="center", vertical="center")
-            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                                 top=Side(style='thin'), bottom=Side(style='thin'))
-            center_alignment = Alignment(horizontal="center", vertical="center")
-
-            # 应用表头样式
-            for col in range(1, len(headers)+1):
-                cell = ws.cell(row=1, column=col)
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_alignment
-
-            # 写入数据 - 导出所有12列
-            for row_idx in range(rows):
-                row_data = []
-                for col in range(12):
-                    item = self.table.item(row_idx, col)
-                    text = item.text() if item else ""
-                    
-                    # 处理金额格式
-                    if col in [3, 6]:  # 退款金额和补偿金额列
-                        # 去掉¥符号，保留数字
-                        text = text.replace('¥', '').replace(',', '')
-                    
-                    # 处理日期格式 - 确保登记日期是准确日期
-                    if col == 9:  # 登记日期列（第10列，索引为9）
-                        # 如果日期显示有问题，尝试从数据库获取准确日期
-                        record_id = self.get_record_id_from_row(row_idx)
-                        if record_id:
-                            record = self.db.get_record_by_id(record_id)
-                            if record and record.get('record_date'):
-                                text = record['record_date']  # 使用数据库中的准确日期
-                    
-                    row_data.append(text)
-                ws.append(row_data)
-
-            # 设置数据行样式（居中对齐，边框）
-            for row_idx in range(2, rows+2):
-                for col_idx in range(1, 12):  # 改为12列
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    cell.alignment = center_alignment
-                    cell.border = thin_border
-                    
-                    # 金额列格式为数字
-                    if col_idx in [4, 7]:  # 退款金额和补偿金额列
-                        try:
-                            if cell.value:
-                                cell.value = float(cell.value)
-                        except:
-                            pass
-                    
-                    # 日期列格式为日期
-                    if col_idx == 10:  # 登记日期列
-                        try:
-                            if cell.value:
-                                # 尝试解析日期格式
-                                date_obj = datetime.strptime(cell.value, '%Y-%m-%d')
-                                cell.value = date_obj
-                                cell.number_format = 'YYYY-MM-DD'
-                        except:
-                            pass
-
-            # 自动调整列宽
-            for col in ws.columns:
-                max_length = 0
-                col_letter = get_column_letter(col[0].column)
-                for cell in col:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 30)
-                ws.column_dimensions[col_letter].width = adjusted_width
+            if export_mode == "independent_sheet" and len(grouped_rows) > 1:
+                wb.remove(wb.active)
+                used_names = set()
+                for store_name, rows_for_store in grouped_rows.items():
+                    ws = wb.create_sheet(self._safe_excel_sheet_name(store_name, used_names))
+                    self._write_refund_export_sheet(ws, rows_for_store, include_process_analysis)
+            else:
+                ws = wb.active
+                ws.title = "退款记录"
+                if len(grouped_rows) > 1:
+                    ordered_rows = []
+                    for rows_for_store in grouped_rows.values():
+                        ordered_rows.extend(rows_for_store)
+                else:
+                    ordered_rows = export_rows
+                self._write_refund_export_sheet(ws, ordered_rows, include_process_analysis)
 
             wb.save(file_path)
             self.show_tooltip("导出成功", "rgba(76, 175, 80, 0.95)", 1500)  # 绿色气泡显示1.5秒
@@ -7691,27 +10411,55 @@ class RefundManager(QMainWindow):
             return f"{start_date} 至 {end_date}"
         return ""
 
-    def _build_store_export_metric_rows(self, metrics):
+    @staticmethod
+    def _format_summary_basic_stats_date_range(summary_snapshot, fallback_metrics=None):
+        metrics = fallback_metrics or {}
+        date_range = metrics.get("date_range", {}) if isinstance(metrics, dict) else {}
+        if not date_range:
+            stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+            if stores:
+                date_range = (stores[0].get("metrics", {}) or {}).get("date_range", {})
+
+        def format_date(value):
+            text = str(value or "").strip()
+            try:
+                parsed = datetime.strptime(text, "%Y-%m-%d")
+                return f"{parsed.month}月{parsed.day}日"
+            except ValueError:
+                try:
+                    parsed = datetime.strptime(text, "%Y/%m/%d")
+                    return f"{parsed.month}月{parsed.day}日"
+                except ValueError:
+                    return text
+
+        start_date = format_date(date_range.get("start_date", ""))
+        end_date = format_date(date_range.get("end_date", ""))
+        if start_date or end_date:
+            return f"{start_date}至{end_date}"
+        return ""
+
+    def _build_summary_export_metric_rows(self, metrics):
         return [
             ("当前范围单量", self._format_metric_int(metrics.get("orders", 0))),
             ("当前范围销售金额", round(metrics.get("sales", 0), 2)),
             ("退款预算金额", round(metrics.get("refund_budget_remaining", 0), 2)),
-            ("品质退款单量", metrics.get("quality_refund_count", 0)),
-            ("其他退款单量", metrics.get("other_refund_count", 0)),
-            ("撤销品质单量", metrics.get("canceled_quality_count", 0)),
+            ("退款单量", metrics.get("record_count", metrics.get("quality_refund_count", 0) + metrics.get("other_refund_count", 0))),
             ("总退款率", f"{metrics.get('total_refund_rate', 0):.2f}%"),
+            ("品质退款单量", metrics.get("quality_refund_count", 0)),
+            ("顾客申请申请品质退款订单的比例", f"{metrics.get('quality_apply_rate', 0):.2f}%"),
+            ("撤销品质单量", metrics.get("canceled_quality_count", metrics.get("quality_cancel_count", 0))),
+            ("顾客申请品质退款订单的比例（已撤销）", f"{metrics.get('quality_cancel_rate', 0):.2f}%"),
+            ("品质退款实际单量", metrics.get("quality_actual_count", 0)),
+            ("申请品质退款订单的比例（未撤销）", f"{metrics.get('quality_actual_rate', 0):.2f}%"),
+            ("其他退款单量", metrics.get("other_refund_count", 0)),
+            ("有效退款金额", round(metrics.get("effective_refund_amount", 0), 2)),
+            ("补偿金额", round(metrics.get("compensation_amount", 0), 2)),
             ("售后总金额", round(metrics.get("total_after_sales", 0), 2)),
             ("金额占比", f"{metrics.get('refund_ratio', 0):.2f}%"),
             ("品质售后金额", round(metrics.get("quality_after_sales_amount", 0), 2)),
             ("其他售后金额", round(metrics.get("other_after_sales_amount", 0), 2)),
-            ("申请品质率", f"{metrics.get('quality_apply_rate', 0):.2f}%"),
-            ("实际品质率", f"{metrics.get('quality_actual_rate', 0):.2f}%"),
-            ("撤销率", f"{metrics.get('quality_cancel_rate', 0):.2f}%"),
             ("品质退款申请单量", metrics.get("quality_apply_count", 0)),
             ("品质退款撤销单量", metrics.get("quality_cancel_count", 0)),
-            ("品质退款实际单量", metrics.get("quality_actual_count", 0)),
-            ("有效退款金额", round(metrics.get("effective_refund_amount", 0), 2)),
-            ("补偿金额", round(metrics.get("compensation_amount", 0), 2)),
             ("有备注订单单量", metrics.get("note_count", 0)),
             ("无备注订单单量", metrics.get("no_note_count", 0)),
             ("备注率", f"{metrics.get('note_rate', 0):.2f}%"),
@@ -7721,30 +10469,20 @@ class RefundManager(QMainWindow):
             ("最多原因占比", f"{metrics.get('top_reason_ratio', 0):.2f}%"),
         ]
 
-    def _build_total_export_metric_rows(self, totals):
-        return [
-            ("当前范围单量", self._format_metric_int(totals.get("orders", 0))),
-            ("当前范围销售金额", round(totals.get("sales", 0), 2)),
-            ("退款预算金额", round(totals.get("refund_budget_remaining", 0), 2)),
-            ("品质退款单量", totals.get("quality_refund_count", 0)),
-            ("其他退款单量", totals.get("other_refund_count", 0)),
-            ("撤销品质单量", totals.get("canceled_quality_count", 0)),
-            ("总退款率", f"{totals.get('total_refund_rate', 0):.2f}%"),
-            ("售后总金额", round(totals.get("total_after_sales", 0), 2)),
-            ("金额占比", f"{totals.get('refund_ratio', 0):.2f}%"),
-            ("申请品质率", f"{totals.get('quality_apply_rate', 0):.2f}%"),
-            ("实际品质率", f"{totals.get('quality_actual_rate', 0):.2f}%"),
-            ("撤销率", f"{totals.get('quality_cancel_rate', 0):.2f}%"),
-            ("有备注订单单量", totals.get("note_count", 0)),
-            ("无备注订单单量", totals.get("no_note_count", 0)),
-            ("备注率", f"{totals.get('note_rate', 0):.2f}%"),
-            ("无备注率", f"{totals.get('no_note_rate', 0):.2f}%"),
-        ]
-
     def _get_stable_spec_fill(self, spec_code):
         spec_text = str(spec_code or "-").strip() or "-"
         digest = hashlib.md5(spec_text.encode("utf-8")).hexdigest()
         # Keep colors light enough for black text while remaining stable per spec.
+        red = 220 + int(digest[0:2], 16) % 30
+        green = 220 + int(digest[2:4], 16) % 30
+        blue = 220 + int(digest[4:6], 16) % 30
+        color = f"{red:02X}{green:02X}{blue:02X}"
+        return PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+    def _get_stable_store_fill(self, store_name):
+        store_text = str(store_name or "未知店铺").strip() or "未知店铺"
+        digest = hashlib.md5(store_text.encode("utf-8")).hexdigest()
+        # Keep the upgraded sheet grouped visually by store while preserving readability.
         red = 220 + int(digest[0:2], 16) % 30
         green = 220 + int(digest[2:4], 16) % 30
         blue = 220 + int(digest[4:6], 16) % 30
@@ -7877,73 +10615,361 @@ class RefundManager(QMainWindow):
 
         return row
 
-    def _write_summary_export_sheet(self, ws, title, summary_snapshot, metrics, metric_rows, real_reason_analysis=None):
+    def _write_summary_basic_stats_sheet(self, ws, summary_snapshot):
         thin_side = Side(style="thin", color="B7B7B7")
         border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
         center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        title_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        meta_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
-        section_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
-        label_fill = PatternFill(start_color="EAF2F8", end_color="EAF2F8", fill_type="solid")
-        value_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
-        key_labels = {"售后总金额", "总退款率", "申请品质率", "实际品质率", "撤销率", "有效退款金额", "补偿金额"}
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        data_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        total_fill = PatternFill(start_color="E2F0D9", end_color="E2F0D9", fill_type="solid")
+        key_labels = {
+            "总退款率",
+            "顾客申请申请品质退款订单的比例",
+            "顾客申请品质退款订单的比例（已撤销）",
+            "申请品质退款订单的比例（未撤销）",
+            "有效退款金额",
+            "补偿金额",
+            "售后总金额",
+            "金额占比",
+        }
 
-        ws.merge_cells("A1:B1")
-        ws["A1"] = title
-        ws["A1"].font = Font(size=18, bold=True, color="FFFFFF")
-        ws["A1"].fill = title_fill
-        ws["A1"].alignment = center
-        ws["A1"].border = border
-        ws["B1"].border = border
+        stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+        metric_rows = self._build_summary_export_metric_rows(stores[0].get("metrics", {}) if stores else {})
+        headers = ["时间", "店铺名称"] + [label for label, _value in metric_rows]
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
         ws.row_dimensions[1].height = 32
 
-        meta_rows = [
-            ("导出时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            ("筛选条件", summary_snapshot.get("filter_summary", "")),
-            ("导出范围", self._get_summary_export_date_range(summary_snapshot, metrics)),
-        ]
         row = 2
-        for label, value in meta_rows:
-            ws.cell(row=row, column=1, value=label)
-            ws.cell(row=row, column=2, value=value)
-            for col in (1, 2):
-                cell = ws.cell(row=row, column=col)
-                cell.fill = meta_fill
-                cell.font = Font(bold=(col == 1), size=11)
-                cell.alignment = center
-                cell.border = border
-            ws.row_dimensions[row].height = 28
-            row += 1
-
-        row += 1
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-        section_cell = ws.cell(row=row, column=1, value="基础统计")
-        section_cell.font = Font(size=14, bold=True, color="FFFFFF")
-        section_cell.fill = section_fill
-        section_cell.alignment = center
-        section_cell.border = border
-        ws.cell(row=row, column=2).fill = section_fill
-        ws.cell(row=row, column=2).border = border
-        ws.row_dimensions[row].height = 28
-        row += 1
-
-        for label, value in metric_rows:
-            label_cell = ws.cell(row=row, column=1, value=label)
-            value_cell = ws.cell(row=row, column=2, value=value)
-            label_cell.fill = label_fill
-            value_cell.fill = value_fill
-            is_key = label in key_labels
-            label_cell.font = Font(size=11, bold=True)
-            value_cell.font = Font(size=11, bold=is_key)
-            for cell in (label_cell, value_cell):
+        for store in stores:
+            metrics = store.get("metrics", {})
+            date_range = self._format_summary_basic_stats_date_range(summary_snapshot, metrics)
+            values = [date_range, store.get("store_name", "未知店铺")]
+            values.extend(value for _label, value in self._build_summary_export_metric_rows(metrics))
+            for col, value in enumerate(values, start=1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.fill = data_fill
+                cell.font = Font(size=11, bold=headers[col - 1] in key_labels)
                 cell.alignment = center
                 cell.border = border
             ws.row_dimensions[row].height = 24
             row += 1
 
-        row += 1
+        totals = summary_snapshot.get("totals") if isinstance(summary_snapshot, dict) else None
+        if totals:
+            date_range = self._format_summary_basic_stats_date_range(summary_snapshot, stores[0].get("metrics", {}) if stores else totals)
+            values = [date_range, totals.get("store_name", "全部总和")]
+            values.extend(value for _label, value in self._build_summary_export_metric_rows(totals))
+            for col, value in enumerate(values, start=1):
+                cell = ws.cell(row=row, column=col)
+                cell.value = value
+                cell.fill = total_fill
+                cell.font = Font(size=11, bold=True)
+                cell.alignment = center
+                cell.border = border
+            ws.row_dimensions[row].height = 24
+
+        ws.freeze_panes = "C2"
+        for col in range(1, len(headers) + 1):
+            letter = get_column_letter(col)
+            if col == 1:
+                ws.column_dimensions[letter].width = 24
+            elif col == 2:
+                ws.column_dimensions[letter].width = 22
+            else:
+                ws.column_dimensions[letter].width = min(max(len(str(headers[col - 1])) + 4, 14), 34)
+
+    def _write_summary_overall_real_reason_sheet(self, ws, summary_snapshot):
+        thin_side = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        data_fill = PatternFill(start_color="F3F8EF", end_color="F3F8EF", fill_type="solid")
+        headers = ["时间", "店铺", "退款原因", "退款数量", "占比"]
+
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
+        ws.row_dimensions[1].height = 32
+
+        stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+        row = 2
+        for store in stores:
+            metrics = store.get("metrics", {})
+            date_range = self._format_summary_basic_stats_date_range(summary_snapshot, metrics)
+            store_name = store.get("store_name", "未知店铺")
+            analysis = store.get("real_reason_analysis", {})
+            categories = analysis.get("overall_categories", []) if isinstance(analysis, dict) else []
+            if not categories:
+                categories = [{"name": "无", "count": 0, "ratio": 0}]
+
+            group_start_row = row
+            for category in categories:
+                values = [
+                    date_range,
+                    store_name,
+                    category.get("name", "未分类"),
+                    category.get("count", 0),
+                    f"{self._safe_float(category.get('ratio', 0)):.2f}%",
+                ]
+                for col, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row, column=col, value=value)
+                    cell.fill = data_fill
+                    cell.alignment = center
+                    cell.border = border
+                ws.row_dimensions[row].height = 24
+                row += 1
+
+            group_end_row = row - 1
+            if group_end_row > group_start_row:
+                for col in (1, 2):
+                    ws.merge_cells(
+                        start_row=group_start_row,
+                        start_column=col,
+                        end_row=group_end_row,
+                        end_column=col
+                    )
+                    cell = ws.cell(row=group_start_row, column=col)
+                    cell.alignment = center
+                    cell.border = border
+                    cell.fill = data_fill
+                    for merged_row in range(group_start_row, group_end_row + 1):
+                        ws.cell(row=merged_row, column=col).alignment = center
+                        ws.cell(row=merged_row, column=col).border = border
+                        ws.cell(row=merged_row, column=col).fill = data_fill
+
+        ws.freeze_panes = "A2"
+        widths = [24, 22, 30, 14, 14]
+        for col, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col)].width = width
+
+    def _write_summary_spec_real_reason_sheet(self, ws, summary_snapshot):
+        thin_side = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        headers = ["时间", "店铺", "规格编码", "退款原因", "数量", "占比"]
+
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
+        ws.row_dimensions[1].height = 32
+
+        stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+        row = 2
+        for store in stores:
+            metrics = store.get("metrics", {})
+            date_range = self._format_summary_basic_stats_date_range(summary_snapshot, metrics)
+            store_name = store.get("store_name", "未知店铺")
+            analysis = store.get("real_reason_analysis", {})
+            spec_categories = analysis.get("spec_categories", []) if isinstance(analysis, dict) else []
+            if not spec_categories:
+                spec_categories = [{"spec": "-", "categories": [{"name": "无", "count": 0, "ratio": 0}]}]
+
+            for spec_item in spec_categories:
+                spec = str(spec_item.get("spec", "-") or "-").strip() or "-"
+                categories = spec_item.get("categories", []) or [{"name": "无", "count": 0, "ratio": 0}]
+                group_start_row = row
+                group_fill = self._get_stable_spec_fill(spec)
+                for category in categories:
+                    values = [
+                        date_range,
+                        store_name,
+                        spec,
+                        category.get("name", "未分类"),
+                        category.get("count", 0),
+                        f"{self._safe_float(category.get('ratio', 0)):.2f}%",
+                    ]
+                    for col, value in enumerate(values, start=1):
+                        cell = ws.cell(row=row, column=col, value=value)
+                        cell.fill = group_fill
+                        cell.alignment = center
+                        cell.border = border
+                    ws.row_dimensions[row].height = 24
+                    row += 1
+
+                group_end_row = row - 1
+                if group_end_row > group_start_row:
+                    for col in (1, 2, 3):
+                        ws.merge_cells(
+                            start_row=group_start_row,
+                            start_column=col,
+                            end_row=group_end_row,
+                            end_column=col
+                        )
+                        cell = ws.cell(row=group_start_row, column=col)
+                        cell.alignment = center
+                        cell.border = border
+                        cell.fill = group_fill
+                        for merged_row in range(group_start_row, group_end_row + 1):
+                            ws.cell(row=merged_row, column=col).alignment = center
+                            ws.cell(row=merged_row, column=col).border = border
+                            ws.cell(row=merged_row, column=col).fill = group_fill
+
+        ws.freeze_panes = "A2"
+        widths = [24, 22, 24, 30, 14, 14]
+        for col, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col)].width = width
+
+    @staticmethod
+    def _parse_summary_date_text(date_text):
+        text = str(date_text or "").strip()
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(text, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    def _get_summary_single_week_start(self, summary_snapshot):
+        """筛选范围必须完整落在同一自然周内，才返回该周周一。"""
+        filters = summary_snapshot.get("filters", {}) if isinstance(summary_snapshot, dict) else {}
+        start_text = filters.get("start_date", "")
+        end_text = filters.get("end_date", "")
+        if not start_text or not end_text:
+            metrics = {}
+            stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+            if stores:
+                metrics = stores[0].get("metrics", {}) or {}
+            elif isinstance(summary_snapshot.get("totals"), dict):
+                metrics = summary_snapshot.get("totals", {}) or {}
+            date_range = metrics.get("date_range", {}) if isinstance(metrics, dict) else {}
+            start_text = date_range.get("start_date", "")
+            end_text = date_range.get("end_date", "")
+
+        start_date = self._parse_summary_date_text(start_text)
+        end_date = self._parse_summary_date_text(end_text)
+        if not start_date or not end_date:
+            return ""
+
+        start_monday = start_date - timedelta(days=start_date.weekday())
+        end_monday = end_date - timedelta(days=end_date.weekday())
+        if start_monday != end_monday:
+            return ""
+        return start_monday.strftime("%Y-%m-%d")
+
+    def _build_summary_spec_order_map(self, summary_snapshot):
+        week_start = self._get_summary_single_week_start(summary_snapshot)
+        if not week_start:
+            return {}
+
+        result = {}
+        stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+        for store in stores:
+            store_name = str(store.get("store_name") or "").strip()
+            if not store_name:
+                continue
+            store_id = self.db.get_store_id_by_name(store_name)
+            if not store_id:
+                continue
+            items = self.db.get_store_weekly_spec_orders_by_week(store_id, week_start)
+            result[store_name] = {
+                str(item.get("spec_code") or "").strip(): int(item.get("order_count") or 0)
+                for item in items
+                if str(item.get("spec_code") or "").strip()
+            }
+        return result
+
+    def _write_summary_spec_real_reason_upgrade_sheet(self, ws, summary_snapshot):
+        thin_side = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        headers = ["时间", "店铺", "规格编码", "规格订单量", "退款原因", "数量", "占比"]
+
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
+        ws.row_dimensions[1].height = 32
+
+        spec_order_map = self._build_summary_spec_order_map(summary_snapshot)
+        stores = summary_snapshot.get("stores", []) if isinstance(summary_snapshot, dict) else []
+        row = 2
+        for store in stores:
+            metrics = store.get("metrics", {})
+            date_range = self._format_summary_basic_stats_date_range(summary_snapshot, metrics)
+            store_name = store.get("store_name", "未知店铺")
+            analysis = store.get("real_reason_analysis", {})
+            spec_categories = analysis.get("spec_categories", []) if isinstance(analysis, dict) else []
+            if not spec_categories:
+                spec_categories = [{"spec": "-", "categories": [{"name": "无", "count": 0}]}]
+
+            store_spec_orders = spec_order_map.get(store_name, {})
+            store_fill = self._get_stable_store_fill(store_name)
+            for spec_item in spec_categories:
+                spec = str(spec_item.get("spec", "-") or "-").strip() or "-"
+                categories = spec_item.get("categories", []) or [{"name": "无", "count": 0}]
+                group_start_row = row
+                raw_order_count = store_spec_orders.get(spec) if spec != "-" else None
+                order_count = raw_order_count if raw_order_count and raw_order_count > 0 else None
+
+                for category in categories:
+                    refund_count = int(category.get("count") or 0)
+                    ratio_text = f"{(refund_count / order_count * 100):.2f}%" if order_count else ""
+                    values = [
+                        date_range,
+                        store_name,
+                        spec,
+                        order_count if order_count else "",
+                        category.get("name", "未分类"),
+                        refund_count,
+                        ratio_text,
+                    ]
+                    for col, value in enumerate(values, start=1):
+                        cell = ws.cell(row=row, column=col, value=value)
+                        cell.fill = store_fill
+                        cell.alignment = center
+                        cell.border = border
+                    ws.row_dimensions[row].height = 24
+                    row += 1
+
+                group_end_row = row - 1
+                if group_end_row > group_start_row:
+                    for col in (1, 2, 3, 4):
+                        ws.merge_cells(
+                            start_row=group_start_row,
+                            start_column=col,
+                            end_row=group_end_row,
+                            end_column=col
+                        )
+                        cell = ws.cell(row=group_start_row, column=col)
+                        cell.alignment = center
+                        cell.border = border
+                        cell.fill = store_fill
+                        for merged_row in range(group_start_row, group_end_row + 1):
+                            ws.cell(row=merged_row, column=col).alignment = center
+                            ws.cell(row=merged_row, column=col).border = border
+                            ws.cell(row=merged_row, column=col).fill = store_fill
+
+        ws.freeze_panes = "A2"
+        widths = [24, 22, 24, 16, 30, 14, 14]
+        for col, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col)].width = width
+
+    def _write_summary_export_sheet(self, ws, real_reason_analysis=None):
+        thin_side = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        row = 1
         if real_reason_analysis:
             row = self._write_real_reason_distribution_blocks(ws, row, real_reason_analysis, border, center)
+        else:
+            ws.cell(row=row, column=1, value="无")
+            ws.cell(row=row, column=1).alignment = center
+            ws.cell(row=row, column=1).border = border
 
         ws.column_dimensions["A"].width = 24
         ws.column_dimensions["B"].width = 30
@@ -7953,6 +10979,155 @@ class RefundManager(QMainWindow):
             for cell in row_cells:
                 if cell.value is not None:
                     cell.alignment = center
+
+    def _write_quality_refund_order_details_sheet(self, ws, summary_snapshot):
+        thin_side = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_wrap = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        summary_header_fill = PatternFill(start_color="70AD47", end_color="70AD47", fill_type="solid")
+        summary_data_fill = PatternFill(start_color="E2F0D9", end_color="E2F0D9", fill_type="solid")
+        empty_fill = PatternFill(start_color="E2F0D9", end_color="E2F0D9", fill_type="solid")
+
+        detail_rows = []
+        summary_rows = []
+        if isinstance(summary_snapshot, dict):
+            detail_rows = summary_snapshot.get("quality_refund_order_details") or []
+            summary_rows = summary_snapshot.get("quality_not_cancelled_reason_summary") or []
+        if not summary_rows and detail_rows:
+            summary_rows = self._build_quality_not_cancelled_reason_summary(detail_rows)
+
+        detail_header_row = 2
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+        detail_title_cell = ws.cell(row=1, column=1, value="品质退款订单明细")
+        detail_title_cell.fill = summary_header_fill
+        detail_title_cell.font = Font(size=12, bold=True, color="FFFFFF")
+        detail_title_cell.alignment = center
+        for col in range(1, 8):
+            ws.cell(row=1, column=col).fill = summary_header_fill
+            ws.cell(row=1, column=col).border = border
+
+        headers = ["订单号", "店铺", "规格编码", "退款原因", "备注", "未撤销原因", "分析说明"]
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(row=detail_header_row, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
+        ws.row_dimensions[detail_header_row].height = 30
+
+        detail_end_row = detail_header_row
+        if detail_rows:
+            indexed_rows = [
+                (index, item)
+                for index, item in enumerate(detail_rows)
+            ]
+            indexed_rows.sort(key=lambda pair: (
+                str(pair[1].get("store_name") or "未知店铺"),
+                str(pair[1].get("spec_code") or "-"),
+                pair[0],
+                str(pair[1].get("order_no") or ""),
+            ))
+            group_ranges = {}
+            for row_index, (_original_index, item) in enumerate(indexed_rows, start=detail_header_row + 1):
+                store_name = str(item.get("store_name") or "未知店铺")
+                spec_code = str(item.get("spec_code") or "-").strip() or "-"
+                store_fill = self._get_stable_store_fill(store_name)
+                values = [
+                    item.get("order_no", ""),
+                    store_name,
+                    spec_code,
+                    item.get("refund_reason", ""),
+                    item.get("notes", ""),
+                    item.get("not_cancelled_reason", ""),
+                    item.get("analysis_detail", ""),
+                ]
+                for col, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row_index, column=col, value=value)
+                    cell.fill = store_fill
+                    cell.alignment = left_wrap if col in (5, 7) else center
+                    cell.border = border
+                ws.row_dimensions[row_index].height = 48
+                store_key = ("store", store_name)
+                spec_key = ("spec", store_name, spec_code)
+                group_ranges.setdefault(store_key, [row_index, row_index])[1] = row_index
+                group_ranges.setdefault(spec_key, [row_index, row_index])[1] = row_index
+                detail_end_row = row_index
+
+            for (group_type, *_group_values), (start_row, end_row) in group_ranges.items():
+                if end_row <= start_row:
+                    continue
+                col = 2 if group_type == "store" else 3
+                ws.merge_cells(start_row=start_row, start_column=col, end_row=end_row, end_column=col)
+                cell = ws.cell(row=start_row, column=col)
+                cell.alignment = center
+                cell.border = border
+                for merged_row in range(start_row, end_row + 1):
+                    ws.cell(row=merged_row, column=col).alignment = center
+                    ws.cell(row=merged_row, column=col).border = border
+        else:
+            empty_row = detail_header_row + 1
+            ws.merge_cells(start_row=empty_row, start_column=1, end_row=empty_row, end_column=len(headers))
+            cell = ws.cell(row=empty_row, column=1, value="当前筛选范围无未撤销品质退款订单")
+            cell.fill = empty_fill
+            cell.alignment = center
+            cell.border = border
+            for col in range(1, len(headers) + 1):
+                ws.cell(row=empty_row, column=col).fill = empty_fill
+                ws.cell(row=empty_row, column=col).border = border
+            ws.row_dimensions[empty_row].height = 28
+            detail_end_row = empty_row
+
+        summary_title_row = detail_end_row + 3
+        ws.merge_cells(start_row=summary_title_row, start_column=1, end_row=summary_title_row, end_column=3)
+        title_cell = ws.cell(row=summary_title_row, column=1, value="品质退款未撤销原因占比")
+        title_cell.fill = summary_header_fill
+        title_cell.font = Font(size=12, bold=True, color="FFFFFF")
+        title_cell.alignment = center
+        for col in range(1, 4):
+            ws.cell(row=summary_title_row, column=col).fill = summary_header_fill
+            ws.cell(row=summary_title_row, column=col).border = border
+
+        summary_header_row = summary_title_row + 1
+        summary_headers = ["未撤销原因", "数量", "占比"]
+        for col, header in enumerate(summary_headers, start=1):
+            cell = ws.cell(row=summary_header_row, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = Font(size=11, bold=True, color="FFFFFF")
+            cell.alignment = center
+            cell.border = border
+
+        row_index = summary_header_row + 1
+        if summary_rows:
+            for item in summary_rows:
+                values = [
+                    item.get("name", "未明确说明未撤销原因"),
+                    item.get("count", 0),
+                    f"{self._safe_float(item.get('ratio', 0)):.2f}%",
+                ]
+                for col, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row_index, column=col, value=value)
+                    cell.fill = summary_data_fill
+                    cell.alignment = left_wrap if col == 1 else center
+                    cell.border = border
+                ws.row_dimensions[row_index].height = 28
+                row_index += 1
+        else:
+            ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=3)
+            cell = ws.cell(row=row_index, column=1, value="当前筛选范围无未撤销品质退款订单")
+            cell.fill = empty_fill
+            cell.alignment = center
+            cell.border = border
+            for col in range(1, 4):
+                ws.cell(row=row_index, column=col).fill = empty_fill
+                ws.cell(row=row_index, column=col).border = border
+            ws.row_dimensions[row_index].height = 28
+
+        ws.freeze_panes = None
+        widths = [22, 24, 16, 28, 62, 34, 62]
+        for col, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col)].width = width
 
     def export_summary_excel(self, checked=False, snapshot=None):
         """导出总结快照到Excel。"""
@@ -7976,16 +11151,22 @@ class RefundManager(QMainWindow):
             used_names = set()
 
             stores = summary_snapshot.get("stores", [])
+            basic_ws = wb.create_sheet(self._safe_excel_sheet_name("基础统计", used_names))
+            self._write_summary_basic_stats_sheet(basic_ws, summary_snapshot)
+            overall_reason_ws = wb.create_sheet(self._safe_excel_sheet_name("总体真实退款原因分布", used_names))
+            self._write_summary_overall_real_reason_sheet(overall_reason_ws, summary_snapshot)
+            spec_reason_ws = wb.create_sheet(self._safe_excel_sheet_name("按规格编码分布", used_names))
+            self._write_summary_spec_real_reason_sheet(spec_reason_ws, summary_snapshot)
+            spec_reason_upgrade_ws = wb.create_sheet(self._safe_excel_sheet_name("按规格编码分布 升级版", used_names))
+            self._write_summary_spec_real_reason_upgrade_sheet(spec_reason_upgrade_ws, summary_snapshot)
+            quality_detail_ws = wb.create_sheet(self._safe_excel_sheet_name("品质退款订单明细", used_names))
+            self._write_quality_refund_order_details_sheet(quality_detail_ws, summary_snapshot)
+
             for store in stores:
-                metrics = store.get("metrics", {})
                 sheet_name = self._safe_excel_sheet_name(store.get("store_name", "未知店铺"), used_names)
                 ws = wb.create_sheet(sheet_name)
                 self._write_summary_export_sheet(
                     ws,
-                    f"{store.get('store_name', '未知店铺')} - 总结",
-                    summary_snapshot,
-                    metrics,
-                    self._build_store_export_metric_rows(metrics),
                     store.get("real_reason_analysis", {})
                 )
 
@@ -7994,16 +11175,12 @@ class RefundManager(QMainWindow):
                 ws = wb.create_sheet(self._safe_excel_sheet_name("全部总和", used_names))
                 self._write_summary_export_sheet(
                     ws,
-                    "全部总和 - 总结",
-                    summary_snapshot,
-                    stores[0].get("metrics", {}) if stores else {},
-                    self._build_total_export_metric_rows(totals),
                     summary_snapshot.get("overall_real_reason_analysis", {})
                 )
 
             if not wb.sheetnames:
                 ws = wb.create_sheet("本地总结")
-                self._write_summary_export_sheet(ws, "本地总结", summary_snapshot, {}, [], {})
+                self._write_summary_export_sheet(ws, {})
 
             wb.save(file_path)
             self.show_tooltip("总结导出成功", "rgba(76, 175, 80, 0.95)", 1500)
@@ -8061,6 +11238,21 @@ class RefundManager(QMainWindow):
 
         return mapping
 
+    def _get_hidden_import_time_mapping(self, headers):
+        """自动识别隐藏时间字段，不放入列映射确认窗口。"""
+        return self.suggest_column_mapping(headers, [
+            {
+                'target': '申请时间',
+                'aliases': ['申请时间', '申请退款时间', '退款申请时间', '售后申请时间'],
+                'keywords': ['申请时间', '申请退款时间', '退款申请时间', '售后申请时间'],
+            },
+            {
+                'target': '同意退款时间',
+                'aliases': ['同意退款时间', '同意时间', '退款同意时间', '同意售后时间'],
+                'keywords': ['同意退款时间', '同意时间', '退款同意时间', '同意售后时间'],
+            },
+        ])
+
     def check_required_columns(self, headers, required_config):
         """检查必要列：支持模糊匹配"""
         missing_columns = []
@@ -8094,11 +11286,13 @@ class RefundManager(QMainWindow):
         # 解析Excel
         data_rows = []
         column_mapping = {}
+        hidden_time_mapping = {}
         try:
             if file_path.endswith('.xlsx'):
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 ws = wb.active
                 headers = [str(cell.value) if cell.value else "" for cell in ws[1]]
+                hidden_time_mapping = self._get_hidden_import_time_mapping(headers)
 
                 # 自动识别字段，并允许用户确认/手动调整
                 column_configs = [
@@ -8182,8 +11376,8 @@ class RefundManager(QMainWindow):
                     },
                     {
                         'target': '登记日期',
-                        'aliases': ['同意退款时间', '登记日期', '登记时间', '日期', '时间', '创建日期', '创建时间', '下单日期'],
-                        'keywords': ['同意退款时间', '退款时间', '登记日期', '登记时间', '日期', '时间', '创建日期', '创建时间', 'date'],
+                        'aliases': ['登记日期', '登记时间', '日期', '创建日期', '创建时间', '下单日期'],
+                        'keywords': ['登记日期', '登记时间', '创建日期', '创建时间', '下单日期', 'date'],
                         'required': False
                     }
                 ]
@@ -8209,7 +11403,10 @@ class RefundManager(QMainWindow):
                     return
 
                 column_mapping = mapping_dialog.get_mapping()
-                missing_required = [field for field in required_fields if field not in column_mapping]
+                missing_required = [
+                    field for field in required_fields
+                    if field not in column_mapping and not (field == '登记日期' and '同意退款时间' in hidden_time_mapping)
+                ]
                 if missing_required:
                     QMessageBox.critical(self, "错误", f"缺少必要字段：{', '.join(missing_required)}")
                     return
@@ -8416,7 +11613,15 @@ class RefundManager(QMainWindow):
                 spec_name = self._extract_mapped_value(row, column_mapping, '规格名称', '')
                 spec_name, auto_spec_code = self._extract_spec_info(spec_name)
                 
+                refund_apply_time = self._parse_import_datetime_value(
+                    self._extract_mapped_value(row, hidden_time_mapping, '申请时间', '')
+                )
+                refund_agree_time = self._parse_import_datetime_value(
+                    self._extract_mapped_value(row, hidden_time_mapping, '同意退款时间', '')
+                )
                 record_date = self._resolve_import_record_date(row, column_mapping)
+                if '登记日期' not in column_mapping and refund_agree_time:
+                    record_date = refund_agree_time[:10]
 
                 # 智能店铺名称识别策略
                 # 1. 首先检查订单号是否在软件数据库中存在
@@ -8475,7 +11680,7 @@ class RefundManager(QMainWindow):
                         detected_fields['comp_amount'] = comp_amount
                     if '驳回' in column_mapping:
                         detected_fields['reject'] = reject
-                    if '驳回结果' in column_mapping:
+                    if '驳回结果' in column_mapping and reject_result:
                         detected_fields['reject_result'] = reject_result
                     if '备注' in column_mapping:
                         detected_fields['notes'] = notes
@@ -8489,6 +11694,10 @@ class RefundManager(QMainWindow):
                         detected_fields['after_sale_status'] = after_sale_status
                     if '登记日期' in column_mapping and record_date:
                         detected_fields['record_date'] = record_date
+                    if '申请时间' in hidden_time_mapping and refund_apply_time:
+                        detected_fields['refund_apply_time'] = refund_apply_time
+                    if '同意退款时间' in hidden_time_mapping and refund_agree_time:
+                        detected_fields['refund_agree_time'] = refund_agree_time
                     
                     # 比较数据是否一致（只比较识别到的字段）
                     same = True
@@ -8532,6 +11741,8 @@ class RefundManager(QMainWindow):
                                 'spec_code': auto_spec_code,
                                 'order_status': order_status,
                                 'after_sale_status': after_sale_status,
+                                'refund_apply_time': refund_apply_time,
+                                'refund_agree_time': refund_agree_time,
                                 'record_date': record_date
                             },
                             'detected_fields': detected_fields  # 记录识别到的字段信息
@@ -8553,6 +11764,8 @@ class RefundManager(QMainWindow):
                         'spec_code': auto_spec_code,
                         'order_status': order_status,
                         'after_sale_status': after_sale_status,
+                        'refund_apply_time': refund_apply_time,
+                        'refund_agree_time': refund_agree_time,
                         'record_date': record_date
                     })
             except Exception as e:
@@ -8770,7 +11983,9 @@ class RefundManager(QMainWindow):
                                               row_data.get('order_status', ''),
                                               row_data.get('after_sale_status', ''),
                                               row_data.get('spec_name', ''),
-                                              row_data.get('spec_code', ''))
+                                              row_data.get('spec_code', ''),
+                                              row_data.get('refund_apply_time', ''),
+                                              row_data.get('refund_agree_time', ''))
                 import_created_ids.append(record_id)
                 success_count += 1
                 imported_record_dates.append(row_data['record_date'])
@@ -9673,10 +12888,14 @@ class RefundManager(QMainWindow):
         reasons = []
         if hasattr(self, 'search_reason_dropdown'):
             reasons = list(self.search_reason_dropdown.selected_items)
+        real_reason = ""
+        if hasattr(self, 'search_real_reason_edit') and self.search_real_reason_edit is not None:
+            real_reason = self.search_real_reason_edit.text().strip()
 
         return {
             "store": self.search_store_combo.currentText(),
             "order_no": self.search_order_edit.text().strip(),
+            "real_reason": real_reason,
             "cancel": self.search_cancel_combo.currentText(),
             "reject": self.search_reject_combo.currentText(),
             "start_date": self.start_date_edit.date().toString("yyyy-MM-dd"),
@@ -9688,11 +12907,13 @@ class RefundManager(QMainWindow):
         """格式化当前筛选条件摘要。"""
         context = self.get_current_filter_context()
         reasons_text = "全部" if not context["reasons"] else "、".join(context["reasons"])
+        real_reason_text = context["real_reason"] or "全部"
         return (
             f"{context['start_date']} 至 {context['end_date']} | "
             f"店铺：{context['store']} | "
             f"撤销：{context['cancel']} | 驳回：{context['reject']} | "
-            f"退款原因：{reasons_text}"
+            f"退款原因：{reasons_text} | "
+            f"真实退款原因：{real_reason_text}"
         )
 
     def get_summary_source_records(self):
@@ -9773,23 +12994,133 @@ class RefundManager(QMainWindow):
         text = str(spec_name or "").strip()
         if not text:
             return ""
-        number_tokens = re.findall(r'\d+(?:\.\d+)?', text)
-        if not number_tokens:
+
+        length_tokens = [
+            match.group(1)
+            for match in re.finditer(r'(?<![\d.])(100|\d{1,2}(?:\.\d)?)(?![\d.])', text)
+        ]
+        length_values = [
+            float(token)
+            for token in length_tokens
+            if 20 <= float(token) <= 100
+        ]
+        if not length_values:
             return ""
-        max_length_value = max(float(token) for token in number_tokens)
+        max_length_value = max(length_values)
         length_code = cls._round_up_to_tens(max_length_value)
-        jin_match = re.search(r'(\d+(?:\.\d+)?)\s*斤', text)
-        if not jin_match:
-            return ""
-        jin_value = int(math.ceil(float(jin_match.group(1))))
-        if length_code <= 0 or jin_value <= 0:
+        if length_code == 100:
+            length_code = 10
+
+        jin_value = cls._extract_spec_jin_value(text)
+        if length_code <= 0 or jin_value not in {3, 5, 6, 7, 10}:
             return ""
         return f"{length_code}{jin_value}"
+
+    @staticmethod
+    def _extract_spec_jin_value(text):
+        jin_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:斤|jin(?![A-Za-z]))', text, re.IGNORECASE)
+        if jin_match:
+            try:
+                return int(math.ceil(float(jin_match.group(1))))
+            except (TypeError, ValueError):
+                return 0
+
+        chinese_jin_map = {
+            "一": 1,
+            "壹": 1,
+            "三": 3,
+            "叁": 3,
+            "五": 5,
+            "伍": 5,
+            "六": 6,
+            "陆": 6,
+            "七": 7,
+            "柒": 7,
+            "十": 10,
+            "拾": 10,
+            "一十": 10,
+            "壹拾": 10,
+        }
+        chinese_match = re.search(r'(壹拾|一十|[一壹三叁五伍六陆七柒十拾])\s*斤', text)
+        if not chinese_match:
+            return 0
+        return chinese_jin_map.get(chinese_match.group(1), 0)
 
     @classmethod
     def _extract_spec_info(cls, spec_name):
         normalized_name = str(spec_name or "").strip()
         return normalized_name, cls._extract_spec_code_from_name(normalized_name)
+
+    def _auto_fill_missing_spec_codes_from_names(self):
+        """启动时自动补齐已录入规格名称但缺少规格编码的历史记录。"""
+        try:
+            records = self.db.get_records_missing_spec_code_with_name()
+            if not records:
+                return 0
+
+            updated_count = 0
+            for record in records:
+                spec_name = str(record.get('spec_name') or '').strip()
+                spec_code = self._extract_spec_code_from_name(spec_name)
+                if not spec_code:
+                    continue
+                if self.db.update_record_partial(record.get('id'), spec_code=spec_code):
+                    updated_count += 1
+
+            if updated_count:
+                self._cached_records = None
+                self._last_search_params = None
+                print(f"✅ 启动自动识别规格编码 {updated_count} 条")
+            return updated_count
+        except Exception as e:
+            print(f"启动自动识别规格编码失败: {e}")
+            return 0
+
+    def reidentify_spec_codes_from_names(self):
+        """手动重新识别所有已录入规格名称订单的规格编码。"""
+        try:
+            records = self.db.get_records_with_spec_name()
+            if not records:
+                QMessageBox.information(self, "识别规格", "没有找到已录入规格名称的订单")
+                return
+
+            updated_count = 0
+            recognized_count = 0
+            unchanged_count = 0
+            unrecognized_count = 0
+            for record in records:
+                spec_name = str(record.get('spec_name') or '').strip()
+                new_spec_code = self._extract_spec_code_from_name(spec_name)
+                if not new_spec_code:
+                    unrecognized_count += 1
+                    continue
+
+                recognized_count += 1
+                old_spec_code = str(record.get('spec_code') or '').strip()
+                if old_spec_code == new_spec_code:
+                    unchanged_count += 1
+                    continue
+
+                if self.db.update_record_partial(record.get('id'), spec_code=new_spec_code):
+                    updated_count += 1
+
+            if updated_count:
+                self._cached_records = None
+                self._last_search_params = None
+                self.load_table_data(force_reload=True)
+
+            QMessageBox.information(
+                self,
+                "识别规格",
+                "规格编码重新识别完成\n\n"
+                f"扫描规格名称：{len(records)} 条\n"
+                f"成功识别：{recognized_count} 条\n"
+                f"更新编码：{updated_count} 条\n"
+                f"无需更新：{unchanged_count} 条\n"
+                f"未识别：{unrecognized_count} 条"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "识别规格失败", f"重新识别规格编码时发生错误：{e}")
 
     @staticmethod
     def _extract_spec_candidate(notes):
@@ -9996,6 +13327,55 @@ class RefundManager(QMainWindow):
             "unclassified_ratio": ((total_count - classified_count) / total_count * 100) if total_count else 0.0,
             "overall_categories": overall_categories,
             "spec_categories": spec_categories,
+        }
+
+    def _build_quality_saved_reason_analysis(self, records):
+        target_records = [record for record in records if self._is_quality_refund_analysis_record(record)]
+        classified_count = 0
+        quality_counts = {}
+        not_cancelled_counts = {}
+        quality_examples = {}
+        not_cancelled_examples = {}
+
+        for record in target_records:
+            quality_reason = str(record.get("quality_refund_reason") or "").strip()
+            not_cancelled_reason = str(record.get("quality_not_cancelled_reason") or "").strip()
+            notes = self._normalize_real_reason_note_text(record.get("notes", ""))
+            if quality_reason or not_cancelled_reason:
+                classified_count += 1
+            if quality_reason:
+                quality_counts[quality_reason] = quality_counts.get(quality_reason, 0) + 1
+                if notes:
+                    examples = quality_examples.setdefault(quality_reason, [])
+                    if notes not in examples and len(examples) < 2:
+                        examples.append(notes)
+            if not_cancelled_reason:
+                not_cancelled_counts[not_cancelled_reason] = not_cancelled_counts.get(not_cancelled_reason, 0) + 1
+                if notes:
+                    examples = not_cancelled_examples.setdefault(not_cancelled_reason, [])
+                    if notes not in examples and len(examples) < 2:
+                        examples.append(notes)
+
+        def build_categories(counts, examples_by_name):
+            total = sum(counts.values())
+            return [
+                {
+                    "name": name,
+                    "count": count,
+                    "ratio": (count / total * 100) if total else 0.0,
+                    "examples": examples_by_name.get(name, []),
+                }
+                for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+            ]
+
+        total_count = len(target_records)
+        return {
+            "total_count": total_count,
+            "classified_count": classified_count,
+            "unclassified_count": max(total_count - classified_count, 0),
+            "classified_ratio": (classified_count / total_count * 100) if total_count else 0.0,
+            "quality_refund_categories": build_categories(quality_counts, quality_examples),
+            "not_cancelled_categories": build_categories(not_cancelled_counts, not_cancelled_examples),
         }
 
     def _build_store_summary_stats(self, store_name, records):
@@ -10232,18 +13612,81 @@ class RefundManager(QMainWindow):
     @staticmethod
     def _get_default_real_reason_category_configs():
         return [
-            {"category_name": "腐烂变质", "keywords_text": "长毛 发霉 霉 腐烂 腐坏 烂 烂了 烂掉 烂心 烂头 烂尾 臭了 变质 坏了 坏掉 坏果", "status": "ACTIVE", "sort_order": 0},
-            {"category_name": "发芽了", "keywords_text": "发芽 发芽了 长芽 长芽了 冒芽", "status": "ACTIVE", "sort_order": 1},
-            {"category_name": "断裂破损", "keywords_text": "断 裂 压坏 破损", "status": "ACTIVE", "sort_order": 2},
-            {"category_name": "半路退回", "keywords_text": "已拦截 拦截退回 半路退回", "status": "ACTIVE", "sort_order": 3},
-            {"category_name": "客户主观不想要", "keywords_text": "不想要 不要了 拍错 买错", "status": "ACTIVE", "sort_order": 4},
-            {"category_name": "未明确备注", "keywords_text": "", "status": "ACTIVE", "sort_order": 5},
+            {"category_name": "腐烂变质", "keywords_text": "长毛 发霉 霉 腐烂 腐坏 烂 烂了 烂掉 烂心 烂头 烂尾 臭了 变质 坏了 坏掉 坏果 变味 有味 臭味 发酸 腐败 软烂 坏 烂果 霉变", "status": "ACTIVE", "sort_order": 0},
+            {"category_name": "发芽了", "keywords_text": "发芽 发芽了 长芽 长芽了 冒芽 生芽 芽眼 芽头", "status": "ACTIVE", "sort_order": 1},
+            {"category_name": "断裂破损", "keywords_text": "断 裂 压坏 破损 断了 裂开 裂口 折断 破裂 破皮 损坏", "status": "ACTIVE", "sort_order": 2},
+            {"category_name": "半路退回", "keywords_text": "已拦截 拦截退回 半路退回 物流退回 中途退回 途中退回 拦截成功 快递退回", "status": "ACTIVE", "sort_order": 3},
+            {"category_name": "客户主观不想要", "keywords_text": "不想要 不要了 拍错 买错 不需要 不喜欢 买多 下错单 拍多了", "status": "ACTIVE", "sort_order": 4},
+            {"category_name": "外观不满意", "keywords_text": "外观 外形 不好看 太差 畸形 外观差 品相差 卖相差 难看 形状差", "status": "ACTIVE", "sort_order": 5},
+            {"category_name": "少称", "keywords_text": "重量不够 少称 缺斤少两 重量少 斤两不够 称重不足 不够重", "status": "ACTIVE", "sort_order": 6},
+            {"category_name": "长度不够", "keywords_text": "长度不够 长度 太短 短 小短 不够长 长度短 尺寸短", "status": "ACTIVE", "sort_order": 7},
+            {"category_name": "泥巴多", "keywords_text": "土多 泥巴多 泥多 带泥 泥土多 土太多 不干净", "status": "ACTIVE", "sort_order": 8},
+            {"category_name": "太细", "keywords_text": "细 太细 削皮完没有了 太小 细小 小根 个头小 规格小", "status": "ACTIVE", "sort_order": 9},
+            {"category_name": "斑点", "keywords_text": "黑点 黑芯 黑斑 黑心 黑洞 斑块 坏点", "status": "ACTIVE", "sort_order": 10},
+            {"category_name": "疤痕", "keywords_text": "疤痕 伤疤 疤多 划痕 刮伤 表皮伤", "status": "ACTIVE", "sort_order": 11},
+            {"category_name": "挤压", "keywords_text": "尾部挤压 头部挤压 挤压 挤压严重 挤压多根 压伤 压烂 压坏 挤坏 挤烂 变形 运输挤压", "status": "ACTIVE", "sort_order": 12},
+            {"category_name": "口感问题", "keywords_text": "不好吃 口感差 味道差 太硬 太软 不甜 发苦 发涩", "status": "ACTIVE", "sort_order": 13},
+            {"category_name": "太湿", "keywords_text": "湿 水分大 潮湿 湿哒哒 出水 水汽", "status": "ACTIVE", "sort_order": 14},
+            {"category_name": "氧化", "keywords_text": "氧化 发黑 变黑 切开黑 表面黑 氧化黑", "status": "ACTIVE", "sort_order": 15},
+            {"category_name": "虫害", "keywords_text": "虫 虫眼 虫洞 虫蛀 有虫 被虫咬", "status": "ACTIVE", "sort_order": 16},
+            {"category_name": "外观瑕疵", "keywords_text": "瑕疵 残次 破皮 表皮差 坑洼 凹陷", "status": "ACTIVE", "sort_order": 17},
+            {"category_name": "客服问题", "keywords_text": "客服 服务 回复慢 处理慢 态度差 售后慢", "status": "ACTIVE", "sort_order": 18},
+            {"category_name": "好评", "keywords_text": "好评 好评返现 返现 评价返现 晒图返现", "status": "ACTIVE", "sort_order": 19},
+            {"category_name": "地标", "keywords_text": "没有地标 无地标 地标缺失 没贴标 标签缺失", "status": "ACTIVE", "sort_order": 20},
+            {"category_name": "品质不符预期", "keywords_text": "品质差 质量差 不新鲜 不满意 不符合 货不对版", "status": "ACTIVE", "sort_order": 21},
+            {"category_name": "拦截单", "keywords_text": "拦截 已拦截 拦截单 拦截件 半路退回 拒收退回 物流拦截", "status": "ACTIVE", "sort_order": 22},
+            {"category_name": "黑洞", "keywords_text": "黑洞 空心 洞 内部空 里面黑", "status": "ACTIVE", "sort_order": 23},
+            {"category_name": "太干", "keywords_text": "干 太干 干瘪 发干 缺水 皱巴", "status": "ACTIVE", "sort_order": 24},
         ]
 
     @staticmethod
     def _parse_real_reason_keywords(keywords_text):
         normalized = re.sub(r'[、,，;；\s]+', ' ', str(keywords_text or ""))
         return [item.strip() for item in normalized.split(" ") if item.strip()]
+
+    @classmethod
+    def _append_real_reason_keywords(cls, existing_text, keywords_to_add):
+        keywords = cls._parse_real_reason_keywords(existing_text)
+        seen = set(keywords)
+        for keyword in keywords_to_add or []:
+            keyword_text = str(keyword or "").strip()
+            if keyword_text and keyword_text not in seen:
+                keywords.append(keyword_text)
+                seen.add(keyword_text)
+        return " ".join(keywords)
+
+    def _merge_default_real_reason_keywords(self):
+        """只给已有分类追加默认关键词，不覆盖用户手工维护的词。"""
+        defaults = {
+            item["category_name"]: self._parse_real_reason_keywords(item.get("keywords_text", ""))
+            for item in self._get_default_real_reason_category_configs()
+        }
+        categories = self.db.get_real_refund_reason_categories(active_only=False)
+        if not categories:
+            self.db.ensure_default_real_refund_reason_categories(self._get_default_real_reason_category_configs())
+            return
+
+        merged = []
+        changed = False
+        for item in categories:
+            category_name = str(item.get("category_name") or "").strip()
+            keywords_text = str(item.get("keywords_text") or "")
+            merged_keywords_text = self._append_real_reason_keywords(
+                keywords_text,
+                defaults.get(category_name, [])
+            )
+            if merged_keywords_text != keywords_text:
+                changed = True
+
+            merged.append({
+                "category_name": category_name,
+                "keywords_text": merged_keywords_text,
+                "status": item.get("status", "ACTIVE"),
+                "sort_order": int(item.get("sort_order", 0) or 0),
+            })
+
+        if changed:
+            self.db.save_real_refund_reason_categories(merged)
 
     @staticmethod
     def _keyword_matches_note(keyword, note_text):
@@ -10256,6 +13699,7 @@ class RefundManager(QMainWindow):
         return all(char in note for char in keyword_text)
 
     def _get_active_local_reason_categories(self):
+        self._merge_default_real_reason_keywords()
         categories = self.db.get_real_refund_reason_categories(active_only=True)
         if not categories:
             self.db.ensure_default_real_refund_reason_categories(self._get_default_real_reason_category_configs())
@@ -10296,6 +13740,7 @@ class RefundManager(QMainWindow):
                 "keywords": matched_keywords,
                 "score": score,
                 "keyword_length_score": keyword_length_score,
+                "sort_order": int(item.get("sort_order", 0) or 0),
             }
             if (
                 best_match is None
@@ -10303,6 +13748,11 @@ class RefundManager(QMainWindow):
                 or (
                     candidate["score"] == best_match["score"]
                     and candidate["keyword_length_score"] > best_match["keyword_length_score"]
+                )
+                or (
+                    candidate["score"] == best_match["score"]
+                    and candidate["keyword_length_score"] == best_match["keyword_length_score"]
+                    and candidate["sort_order"] < best_match["sort_order"]
                 )
             ):
                 best_match = candidate
@@ -10322,7 +13772,7 @@ class RefundManager(QMainWindow):
                 continue
             category, _ = self._match_local_real_reason(note_text, active_categories)
             if not category:
-                category = "未明确备注"
+                continue
             samples = examples_map.setdefault(category, [])
             if note_text not in samples and len(samples) < 2:
                 samples.append(note_text)
@@ -10444,6 +13894,20 @@ class RefundManager(QMainWindow):
             lines.append("- 无")
         return lines
 
+    def _render_quality_saved_reason_analysis_lines(self, analysis):
+        lines = [
+            f"- 符合条件订单：{analysis.get('total_count', 0)}单",
+            f"- 已AI分析：{analysis.get('classified_count', 0)}单（{analysis.get('classified_ratio', 0):.2f}%）",
+            f"- 未分析：{analysis.get('unclassified_count', 0)}单",
+            "",
+            "#### 品质退款原因",
+            "",
+        ]
+        lines.extend(self._render_category_lines(analysis.get("quality_refund_categories", [])))
+        lines.extend(["", "#### 未撤销原因", ""])
+        lines.extend(self._render_category_lines(analysis.get("not_cancelled_categories", [])))
+        return lines
+
     def _build_unclassified_reason_summary(self, records):
         summary = {
             "empty_notes_count": 0,
@@ -10521,6 +13985,7 @@ class RefundManager(QMainWindow):
         """打开本地分类管理窗口。"""
         try:
             self.ensure_ai_window_visible()
+            self._merge_default_real_reason_keywords()
             dialog_parent = self.ai_window if hasattr(self, 'ai_window') and self.ai_window else self
             dialog = LocalReasonCategoryDialog(self.db, parent=dialog_parent)
             if dialog.exec_() == QDialog.Accepted:
@@ -10667,6 +14132,7 @@ class RefundManager(QMainWindow):
                 manual_assign_callback=self._apply_manual_real_reason_assignment,
                 ai_assign_callback=self._apply_ai_manual_real_reason_assignment,
                 save_note_spec_callback=self._apply_manual_reason_note_spec_save,
+                single_assign_callback=self._apply_current_range_real_reason_assignment,
             )
             dialog.setWindowModality(Qt.NonModal)
             dialog.setWindowFlag(Qt.Window, True)
@@ -10789,6 +14255,10 @@ class RefundManager(QMainWindow):
 
     def _apply_ai_manual_real_reason_assignment(self, records, progress_parent=None):
         """让AI只看备注，把手动归因窗口里的未归因记录归入现有或新增分类。"""
+        records = [
+            record for record in (records or [])
+            if self._normalize_real_reason_note_text(record.get("notes", ""))
+        ]
         if not records:
             return {"updated_count": 0, "new_categories": [], "message": "当前窗口没有可归因记录"}
         if not self.ai_analyzer.api_key:
@@ -10946,6 +14416,319 @@ class RefundManager(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "查看失败", f"查看真实退款原因失败：{e}")
 
+    def _is_quality_refund_analysis_record(self, record):
+        return (
+            self._is_quality_reason(record.get("reason"))
+            and not bool(record.get("cancel"))
+            and not self._is_reject_success_record(record)
+        )
+
+    def _get_quality_refund_reason_records(self):
+        return [
+            record for record in self.get_summary_source_records()
+            if self._is_quality_refund_analysis_record(record)
+        ]
+
+    def _is_quality_refund_reason_stale(self, record):
+        notes = str(record.get("notes", "") or "").strip()
+        if not notes:
+            return False
+        current_hash = self._build_real_reason_note_hash(notes)
+        stored_hash = str(record.get("quality_refund_reason_note_hash") or "").strip()
+        if not stored_hash:
+            return True
+        return current_hash != stored_hash
+
+    def _build_quality_refund_assignment_candidates(self, records):
+        candidates = []
+        for record in records:
+            notes = str(record.get("notes", "") or "").strip()
+            if not notes:
+                continue
+            has_not_cancelled_reason = str(record.get("quality_not_cancelled_reason") or "").strip()
+            if has_not_cancelled_reason and not self._is_quality_refund_reason_stale(record):
+                continue
+            candidates.append(record)
+        return candidates
+
+    def _build_quality_refund_assignment_payload(self, records):
+        payload_records = []
+        for index, record in enumerate(records):
+            payload_records.append({
+                "index": index,
+                "id": record.get("id"),
+                "store_name": record.get("store_name", ""),
+                "spec_code": str(record.get("spec_code") or "").strip(),
+                "refund_reason": str(record.get("reason") or "").strip(),
+                "notes": self._normalize_real_reason_note_text(record.get("notes", "")),
+            })
+        existing_categories = [
+            item.get("category_name", "")
+            for item in self.db.get_quality_not_cancelled_reason_categories()
+            if str(item.get("category_name") or "").strip()
+        ]
+        return {"existing_categories": existing_categories, "records": payload_records}
+
+    def _normalize_quality_refund_assignment_item(self, item, record=None):
+        try:
+            index = int(item.get("index"))
+        except Exception:
+            index = -1
+        not_cancelled_reason = self._normalize_display_category_name(item.get("not_cancelled_reason", ""))
+        if not_cancelled_reason == "未明确未撤销原因":
+            not_cancelled_reason = "未明确说明未撤销原因"
+        detail = self._normalize_quality_not_cancelled_detail(
+            item.get("detail", ""),
+            not_cancelled_reason,
+            record.get("notes", "") if isinstance(record, dict) else "",
+        )
+        return {
+            "index": index,
+            "not_cancelled_reason": not_cancelled_reason or "未明确说明未撤销原因",
+            "detail": detail,
+        }
+
+    def _normalize_quality_not_cancelled_detail(self, detail, not_cancelled_reason="", notes=""):
+        detail_text = str(detail or "").strip()
+        reason_text = str(not_cancelled_reason or "").strip()
+        notes_text = self._normalize_real_reason_note_text(notes)
+        if not detail_text or reason_text == "未明确说明未撤销原因":
+            return ""
+
+        detail_text = re.sub(
+            r'^(备注|内容|说明|用户备注|客服备注)\s*(提到|提到了|写了|写到|写到了|说了|显示|说明|描述|中说|记录|为|是)[:：，,\s]*',
+            '',
+            detail_text
+        ).strip()
+        if not detail_text:
+            return ""
+
+        quality_only_keywords = [
+            "烂", "腐烂", "发霉", "长毛", "发芽", "破损", "坏了", "断裂", "变质",
+            "规格不符", "个头", "口感", "不好吃", "质量问题"
+        ]
+        not_cancelled_keywords = [
+            "客服", "接线", "超时", "未处理", "来不及", "证据", "图片", "视频",
+            "仅退款", "平台", "不同意", "拒绝", "撤销", "拦截", "已退款", "保留"
+        ]
+        has_quality_only = any(keyword in detail_text for keyword in quality_only_keywords)
+        has_not_cancelled_signal = any(keyword in detail_text for keyword in not_cancelled_keywords)
+        if has_quality_only and not has_not_cancelled_signal:
+            return ""
+        if notes_text:
+            normalized_detail = re.sub(r'\s+', '', detail_text)
+            normalized_notes = re.sub(r'\s+', '', notes_text)
+            if normalized_detail and (
+                normalized_detail == normalized_notes
+                or (len(normalized_detail) >= 6 and normalized_detail in normalized_notes)
+            ):
+                return ""
+        return detail_text[:80]
+
+    def _apply_quality_not_cancelled_local_fallback(self, item, record):
+        notes = self._normalize_real_reason_note_text(record.get("notes", "") if isinstance(record, dict) else "")
+        if not notes:
+            return item
+        reason = str(item.get("not_cancelled_reason") or "").strip()
+        if reason and reason != "未明确说明未撤销原因":
+            return item
+
+        compact_notes = re.sub(r'\s+', '', notes)
+        reject_keywords = [
+            "驳回退款导致退款", "驳回导致退款", "驳回失败", "驳回后平台退款",
+            "驳回后退款", "驳回被平台退款", "驳回不成功", "驳回未成功"
+        ]
+        video_keywords = ["多多视频导致", "多多视频售后", "多多视频"]
+
+        if any(keyword in compact_notes for keyword in reject_keywords):
+            item["not_cancelled_reason"] = "驳回失败导致退款"
+            item["detail"] = ""
+        elif any(keyword in compact_notes for keyword in video_keywords):
+            item["not_cancelled_reason"] = "多多视频售后导致退款"
+            item["detail"] = ""
+        return item
+
+    def _normalize_quality_not_cancelled_categories(self, categories):
+        names = []
+        seen = set()
+        for item in categories or []:
+            if isinstance(item, dict):
+                name = item.get("category_name") or item.get("name")
+            else:
+                name = item
+            name = self._normalize_display_category_name(name)
+            if name == "未明确未撤销原因":
+                name = "未明确说明未撤销原因"
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+        if "未明确说明未撤销原因" not in seen:
+            names.append("未明确说明未撤销原因")
+        return names
+
+    def analyze_quality_refund_reasons_for_dialog(self, dialog):
+        """对当前品质退款原因窗口中的候选订单执行AI逐单分类。"""
+        progress_dialog = None
+        try:
+            records = self._get_quality_refund_reason_records()
+            if not records:
+                QMessageBox.information(dialog, "提示", "当前筛选条件下没有未撤销且未驳回成功的品质退款订单")
+                return
+            dialog_records = list(getattr(dialog, "records", []) or [])
+            candidate_source = dialog_records if dialog_records else records
+            candidates = [
+                record for record in candidate_source
+                if self._is_quality_refund_analysis_record(record)
+                and str(record.get("notes", "") or "").strip()
+            ]
+            if not candidates:
+                QMessageBox.information(dialog, "提示", "当前窗口内没有可发送给AI分析的备注")
+                return
+            if not self.ai_analyzer.api_key:
+                self.show_api_settings_dialog()
+                return
+
+            progress_dialog = QProgressDialog("正在AI分析未撤销原因...", None, 0, 100, dialog)
+            progress_dialog.setWindowTitle("AI分析中")
+            progress_dialog.setWindowModality(Qt.WindowModal)
+            progress_dialog.setCancelButton(None)
+            progress_dialog.show()
+            QApplication.processEvents()
+
+            payload = self._build_quality_refund_assignment_payload(candidates)
+            progress_dialog.setValue(30)
+            result, _debug_meta = self.ai_analyzer.analyze_quality_refund_order_reasons(payload)
+            assignments = result.get("assignments", []) if isinstance(result, dict) else []
+            if not isinstance(assignments, list):
+                raise ValueError("AI返回格式异常：assignments 不是数组")
+
+            updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ai_categories = self._normalize_quality_not_cancelled_categories(
+                result.get("categories", []) if isinstance(result, dict) else []
+            )
+            for raw_item in assignments:
+                if isinstance(raw_item, dict):
+                    assignment_name = self._normalize_display_category_name(raw_item.get("not_cancelled_reason", ""))
+                    if assignment_name and assignment_name not in ai_categories:
+                        ai_categories.append(assignment_name)
+            existing_category_names = [
+                item.get("category_name", "")
+                for item in self.db.get_quality_not_cancelled_reason_categories(active_only=False)
+                if str(item.get("category_name") or "").strip()
+            ]
+            merged_category_names = []
+            for name in existing_category_names + ai_categories:
+                normalized_name = self._normalize_display_category_name(name)
+                if normalized_name and normalized_name not in merged_category_names:
+                    merged_category_names.append(normalized_name)
+            self.db.save_quality_not_cancelled_reason_categories(merged_category_names)
+
+            updated_count = 0
+            updated_record_ids = set()
+            candidate_by_index = {index: record for index, record in enumerate(candidates)}
+            for raw_item in assignments:
+                if not isinstance(raw_item, dict):
+                    continue
+                raw_index = self._normalize_quality_refund_assignment_item(raw_item)["index"]
+                record = candidate_by_index.get(raw_index)
+                if not record:
+                    continue
+                item = self._normalize_quality_refund_assignment_item(raw_item, record)
+                item = self._apply_quality_not_cancelled_local_fallback(item, record)
+                fallback_category = item.get("not_cancelled_reason", "")
+                if fallback_category and fallback_category not in merged_category_names:
+                    merged_category_names.append(fallback_category)
+                    self.db.save_quality_not_cancelled_reason_categories(merged_category_names)
+                note_hash = self._build_real_reason_note_hash(record.get("notes", ""))
+                if self.db.update_quality_not_cancelled_reason(
+                    record.get("id"),
+                    item["not_cancelled_reason"],
+                    item["detail"],
+                    note_hash,
+                    updated_at,
+                ):
+                    updated_count += 1
+                    updated_record_ids.add(record.get("id"))
+
+            for record in candidates:
+                record_id = record.get("id")
+                if record_id in updated_record_ids:
+                    continue
+                note_hash = self._build_real_reason_note_hash(record.get("notes", ""))
+                if self.db.update_quality_not_cancelled_reason(
+                    record_id,
+                    "未明确说明未撤销原因",
+                    "",
+                    note_hash,
+                    updated_at,
+                ):
+                    updated_count += 1
+
+            progress_dialog.setValue(100)
+            progress_dialog.close()
+            progress_dialog = None
+            self.load_table_data(force_reload=True)
+            dialog.set_records(self._get_quality_refund_reason_records())
+            QMessageBox.information(dialog, "分析完成", f"AI已分析并保存 {updated_count} 条未撤销原因")
+        except Exception as e:
+            if progress_dialog is not None:
+                progress_dialog.close()
+            QMessageBox.critical(dialog, "AI分析失败", f"AI分析未撤销原因失败：{e}")
+
+    def show_quality_refund_reason_view(self):
+        """查看当前筛选范围内未撤销且未驳回成功的品质退款原因。"""
+        try:
+            records = self._get_quality_refund_reason_records()
+            parent = self.ai_window if hasattr(self, 'ai_window') and self.ai_window else self
+            dialog = QualityRefundReasonDialog(self, records, parent=parent)
+            dialog.exec_()
+            self.ensure_ai_window_visible()
+        except Exception as e:
+            QMessageBox.critical(self, "查看失败", f"查看品质退款失败：{e}")
+
+    def _build_quality_refund_order_detail_rows(self, records):
+        """构建总结导出用的未撤销品质退款订单明细。"""
+        detail_rows = []
+        for record in records or []:
+            if not self._is_quality_refund_analysis_record(record):
+                continue
+            detail_rows.append({
+                "order_no": str(record.get("order_no") or "").strip(),
+                "store_name": str(record.get("store_name") or "").strip(),
+                "spec_code": str(record.get("spec_code") or "").strip(),
+                "refund_reason": self._normalize_reason(record.get("reason")),
+                "notes": self._normalize_real_reason_note_text(record.get("notes", "")),
+                "not_cancelled_reason": str(record.get("quality_not_cancelled_reason") or "").strip(),
+                "analysis_detail": self._normalize_quality_not_cancelled_detail(
+                    record.get("quality_refund_reason_detail", ""),
+                    record.get("quality_not_cancelled_reason", ""),
+                    record.get("notes", ""),
+                ),
+            })
+        return detail_rows
+
+    def _build_quality_not_cancelled_reason_summary(self, detail_rows):
+        """按未撤销原因汇总当前品质退款明细占比。"""
+        counts = {}
+        for item in detail_rows or []:
+            reason = str(item.get("not_cancelled_reason") or "").strip()
+            if not reason or reason == "-":
+                reason = "未明确说明未撤销原因"
+            counts[reason] = counts.get(reason, 0) + 1
+
+        total_count = sum(counts.values())
+        if total_count <= 0:
+            return []
+        return [
+            {
+                "name": name,
+                "count": count,
+                "ratio": round(count / total_count * 100, 2),
+            }
+            for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+
     def _build_local_summary_snapshot(self, records):
         """构建不依赖AI的本地总结快照。"""
         context = self.get_current_filter_context()
@@ -10961,8 +14744,10 @@ class RefundManager(QMainWindow):
                 "store_name": store_name,
                 "metrics": self._build_store_summary_stats(store_name, store_records),
                 "real_reason_analysis": self._build_real_reason_analysis(store_records),
+                "quality_saved_reason_analysis": self._build_quality_saved_reason_analysis(store_records),
             })
 
+        quality_detail_rows = self._build_quality_refund_order_detail_rows(records)
         return {
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "filters": context,
@@ -10975,6 +14760,9 @@ class RefundManager(QMainWindow):
                 records
             ),
             "overall_real_reason_analysis": self._build_real_reason_analysis(records),
+            "overall_quality_saved_reason_analysis": self._build_quality_saved_reason_analysis(records),
+            "quality_refund_order_details": quality_detail_rows,
+            "quality_not_cancelled_reason_summary": self._build_quality_not_cancelled_reason_summary(quality_detail_rows),
         }
 
     def _run_summary_ai_sections(self, snapshot, progress_dialog=None, base_progress=20, step_progress=60):
@@ -11121,6 +14909,12 @@ class RefundManager(QMainWindow):
                 "",
             ])
             lines.extend(self._render_real_reason_analysis_lines(store.get("real_reason_analysis", {})))
+            lines.extend([
+                "",
+                "### 品质退款原因统计",
+                "",
+            ])
+            lines.extend(self._render_quality_saved_reason_analysis_lines(store.get("quality_saved_reason_analysis", {})))
             lines.append("")
 
         totals = snapshot.get("totals")
@@ -11149,6 +14943,12 @@ class RefundManager(QMainWindow):
                 "",
             ])
             lines.extend(self._render_real_reason_analysis_lines(snapshot.get("overall_real_reason_analysis", {})))
+            lines.extend([
+                "",
+                "### 全部总和品质退款原因统计",
+                "",
+            ])
+            lines.extend(self._render_quality_saved_reason_analysis_lines(snapshot.get("overall_quality_saved_reason_analysis", {})))
 
         return "\n".join(lines)
 
@@ -11157,6 +14957,450 @@ class RefundManager(QMainWindow):
         self.latest_summary_snapshot = snapshot
         self.summary_result_text.setMarkdown(self.render_summary_snapshot_markdown(snapshot))
         self.ai_tab_widget.setCurrentIndex(1)
+
+    def show_daily_work_summary_dialog(self):
+        """打开当前筛选范围的工作总结窗口。"""
+        try:
+            parent = self.ai_window if hasattr(self, 'ai_window') and self.ai_window and self.ai_window.isVisible() else self
+            dialog = DailyWorkSummaryDialog(self, parent=parent)
+            dialog.exec_()
+        except Exception as e:
+            QMessageBox.critical(self, "工作总结", f"打开工作总结窗口失败：{e}")
+
+    def _build_quality_refund_order_lines(self, records):
+        """列出当前范围内品质退款订单明细。"""
+        items = []
+        for record in records or []:
+            if not self._is_quality_reason(record.get("reason")):
+                continue
+            if record.get("cancel"):
+                result_text = "已撤销"
+            elif self._is_reject_success_record(record):
+                result_text = "驳回成功"
+            else:
+                result_text = "未撤销/退款保留"
+                after_sale_status = str(record.get("after_sale_status") or "").strip()
+                if after_sale_status:
+                    result_text = f"{result_text}（{after_sale_status}）"
+            items.append({
+                "store_name": record.get("store_name", ""),
+                "order_no": record.get("order_no", ""),
+                "spec_code": str(record.get("spec_code") or "").strip(),
+                "refund_reason": self._normalize_reason(record.get("reason")),
+                "refund_amount": self._safe_float(record.get("refund_amount", 0)),
+                "cancel": "是" if record.get("cancel") else "否",
+                "reject": "是" if record.get("reject") else "否",
+                "reject_result": self._display_reject_result_value(record),
+                "result": result_text,
+                "notes": self._normalize_real_reason_note_text(record.get("notes", "")),
+                "quality_not_cancelled_reason": str(record.get("quality_not_cancelled_reason") or "").strip(),
+                "quality_refund_reason_detail": str(record.get("quality_refund_reason_detail") or "").strip(),
+            })
+        return items
+
+    def _build_unshipped_followup_orders(self, records):
+        """列出当前范围内需要晚班客服关注的未发货订单。"""
+        items = []
+        for record in records or []:
+            order_no = str(record.get("order_no") or "").strip()
+            if not order_no:
+                continue
+            order_status = str(record.get("order_status") or "").strip()
+            if order_status == "已发货":
+                continue
+            items.append({
+                "store_name": record.get("store_name", ""),
+                "order_no": order_no,
+                "order_status": order_status or "未填写",
+                "after_sale_status": str(record.get("after_sale_status") or "").strip() or "未填写",
+                "refund_reason": self._normalize_reason(record.get("reason")),
+                "notes": self._normalize_real_reason_note_text(record.get("notes", "")),
+            })
+        return items
+
+    @staticmethod
+    def _should_include_unshipped_followup(user_text):
+        """只有用户明确提到发货跟踪时，才展示/发送未发货列表。"""
+        text = re.sub(r'\s+', '', str(user_text or ""))
+        if not text:
+            return False
+        keywords = [
+            "未发货", "没发货", "没有发货", "待发货", "还没发货", "尚未发货",
+            "发货跟踪", "跟踪发货", "晚班跟踪", "晚班客服跟踪", "发货需要跟踪",
+            "未及时发货", "没有及时发货"
+        ]
+        return any(keyword in text for keyword in keywords)
+
+    def _render_daily_metric_lines(self, metrics):
+        if not metrics:
+            return ["- 无统计数据"]
+        return [
+            f"- 当前范围单量：{self._format_metric_int(metrics.get('orders', 0))}",
+            f"- 当前范围销售额：¥{self._safe_float(metrics.get('sales', 0)):.2f}",
+            f"- 退款预算：¥{self._safe_float(metrics.get('refund_budget_remaining', 0)):.2f}",
+            f"- 品质退款：{metrics.get('quality_refund_count', 0)}单",
+            f"- 其他退款：{metrics.get('other_refund_count', 0)}单",
+            f"- 撤销品质：{metrics.get('canceled_quality_count', 0)}单",
+            f"- 总退款率：{self._safe_float(metrics.get('total_refund_rate', 0)):.2f}%",
+            f"- 售后总额：¥{self._safe_float(metrics.get('total_after_sales', 0)):.2f}",
+            f"- 金额占比：{self._safe_float(metrics.get('refund_ratio', 0)):.2f}%",
+            f"- 申请品质率：{self._safe_float(metrics.get('quality_apply_rate', 0)):.2f}%",
+            f"- 实际品质率：{self._safe_float(metrics.get('quality_actual_rate', 0)):.2f}%",
+            f"- 撤销率：{self._safe_float(metrics.get('quality_cancel_rate', 0)):.2f}%",
+            f"- 最多原因：{metrics.get('top_refund_reason', '无数据')}（{metrics.get('top_reason_count', 0)}单）",
+        ]
+
+    def _build_plain_store_stats_summary_lines(self, snapshot):
+        """把店铺统计转成适合日报参考的大白话摘要。"""
+        lines = []
+        for store in snapshot.get("stores", []) or []:
+            store_name = store.get("store_name", "未知店铺")
+            metrics = store.get("metrics", {}) or {}
+            quality_count = int(metrics.get("quality_refund_count", 0) or 0)
+            after_sales = self._safe_float(metrics.get("total_after_sales", 0))
+            if quality_count <= 0 and after_sales <= 0:
+                continue
+
+            orders = self._safe_float(metrics.get("orders", 0))
+            sales = self._safe_float(metrics.get("sales", 0))
+            cancel_count = int(metrics.get("quality_cancel_count", metrics.get("canceled_quality_count", 0)) or 0)
+            actual_count = int(metrics.get("quality_actual_count", max(quality_count - cancel_count, 0)) or 0)
+            apply_rate = self._safe_float(metrics.get("quality_apply_rate", 0))
+            actual_rate = self._safe_float(metrics.get("quality_actual_rate", 0))
+            refund_ratio = self._safe_float(metrics.get("refund_ratio", 0))
+            other_count = int(metrics.get("other_refund_count", 0) or 0)
+
+            parts = [f"{store_name}根据上周单量预估"]
+            if orders > 0:
+                parts.append(f"当前范围约{self._format_metric_int(orders)}单")
+            if quality_count > 0:
+                parts.append(f"登记品质退款{quality_count}单，预估申请品质率{apply_rate:.2f}%")
+                parts.append(f"已撤销{cancel_count}单，实际预计计入{actual_count}单，实际品质率约{actual_rate:.2f}%")
+            if other_count > 0:
+                parts.append(f"其他退款{other_count}单")
+            if after_sales > 0:
+                if sales > 0:
+                    parts.append(f"品质售后金额约{after_sales:.2f}元，占销售额约{refund_ratio:.2f}%")
+                else:
+                    parts.append(f"品质售后金额约{after_sales:.2f}元")
+            top_reason = str(metrics.get("top_refund_reason") or "").strip()
+            top_count = int(metrics.get("top_reason_count", 0) or 0)
+            if top_reason and top_reason != "无数据" and top_count > 0:
+                parts.append(f"主要登记原因是{top_reason}{top_count}单")
+            lines.append("，".join(parts) + "。")
+
+        totals = snapshot.get("totals")
+        if totals:
+            total_quality = int(totals.get("quality_refund_count", 0) or 0)
+            total_cancel = int(totals.get("quality_cancel_count", totals.get("canceled_quality_count", 0)) or 0)
+            total_actual = int(totals.get("quality_actual_count", max(total_quality - total_cancel, 0)) or 0)
+            total_after_sales = self._safe_float(totals.get("total_after_sales", 0))
+            if total_quality > 0 or total_after_sales > 0:
+                lines.insert(
+                    0,
+                    "整体来看，当前筛选范围登记品质退款"
+                    f"{total_quality}单，已撤销{total_cancel}单，实际预计计入{total_actual}单；"
+                    f"品质售后金额约{total_after_sales:.2f}元，申请品质率约{self._safe_float(totals.get('quality_apply_rate', 0)):.2f}%，"
+                    f"实际品质率约{self._safe_float(totals.get('quality_actual_rate', 0)):.2f}%。"
+                )
+
+        return lines
+
+    def _build_plain_stats_summary_text(self, snapshot):
+        lines = self._build_plain_store_stats_summary_lines(snapshot)
+        return "\n".join(lines) if lines else "当前筛选范围没有明显需要写进日报的品质退款或售后金额数据。"
+
+    def _build_quality_refund_processing_summary(self, records):
+        """汇总日报里的整体品质退款处理情况。"""
+        quality_records = [
+            record for record in records or []
+            if self._is_quality_reason(record.get("reason"))
+        ]
+        total_count = len(quality_records)
+        cancel_count = sum(1 for record in quality_records if record.get("cancel"))
+        reject_success_count = sum(1 for record in quality_records if self._is_reject_success_record(record))
+        not_cancelled_count = max(total_count - cancel_count - reject_success_count, 0)
+        cancel_rate = (cancel_count / total_count * 100) if total_count else 0.0
+        text_parts = [
+            f"整体品质退款处理：共{total_count}单",
+            f"撤销{cancel_count}单",
+            f"撤销率{cancel_rate:.2f}%",
+        ]
+        if reject_success_count > 0:
+            text_parts.append(f"驳回成功{reject_success_count}单")
+        text_parts.append(f"未撤销/实际计入影响{not_cancelled_count}单")
+        text = "，".join(text_parts) + "。"
+        return {
+            "total_quality_refund_count": total_count,
+            "cancel_count": cancel_count,
+            "cancel_rate": round(cancel_rate, 2),
+            "reject_success_count": reject_success_count,
+            "not_cancelled_effective_count": not_cancelled_count,
+            "summary_text": text,
+        }
+
+    def _build_quality_refund_orders_by_store(self, snapshot, quality_orders):
+        """按店铺组织品质退款订单，供日报按店铺紧跟订单号输出。"""
+        stats_summary_by_store = {}
+        for store in snapshot.get("stores", []) or []:
+            store_name = store.get("store_name", "未知店铺")
+            store_snapshot = {"stores": [store], "totals": None}
+            summary_lines = self._build_plain_store_stats_summary_lines(store_snapshot)
+            stats_summary_by_store[store_name] = summary_lines[0] if summary_lines else ""
+
+        grouped = {}
+        for order in quality_orders or []:
+            store_name = order.get("store_name", "未知店铺")
+            bucket = grouped.setdefault(store_name, {
+                "store_name": store_name,
+                "store_summary": stats_summary_by_store.get(store_name, ""),
+                "quality_refund_orders": [],
+            })
+            bucket["quality_refund_orders"].append(order)
+
+        return [
+            grouped[store_name]
+            for store_name in sorted(grouped.keys())
+        ]
+
+    def render_daily_work_summary_preview(self, records, user_text=""):
+        """渲染工作总结弹窗里的本地数据预览。"""
+        records = list(records or [])
+        snapshot = self._build_local_summary_snapshot(records) if records else {
+            "stores": [],
+            "totals": None,
+            "records_count": 0,
+            "store_count": 0,
+        }
+        quality_orders = self._build_quality_refund_order_lines(records)
+        plain_stats_lines = self._build_plain_store_stats_summary_lines(snapshot)
+        include_unshipped_followup = self._should_include_unshipped_followup(user_text)
+        unshipped_orders = self._build_unshipped_followup_orders(records) if include_unshipped_followup else []
+        lines = [
+            "## 工作总结数据预览",
+            "",
+            f"- 当前筛选：{self.get_current_filter_summary_text()}",
+            f"- 退款登记记录：{len(records)}条",
+            f"- 涉及店铺：{snapshot.get('store_count', 0)}个",
+            "",
+        ]
+        if not records:
+            lines.extend([
+                "当前筛选范围暂无退款登记。仍可在下方填写今日工作内容，并让AI润色成工作总结。",
+                "",
+            ])
+
+        if plain_stats_lines:
+            lines.extend(["### 大白话统计摘要", ""])
+            lines.extend([f"- {line}" for line in plain_stats_lines])
+            lines.append("")
+
+        for store in snapshot.get("stores", []):
+            metrics = store.get("metrics", {})
+            lines.extend([
+                f"### {store.get('store_name', '未知店铺')}",
+                "",
+            ])
+            lines.extend(self._render_daily_metric_lines(metrics))
+            lines.append("")
+
+        totals = snapshot.get("totals")
+        if totals:
+            lines.extend(["### 全部总和", ""])
+            lines.extend(self._render_daily_metric_lines(totals))
+            lines.append("")
+
+        lines.extend([
+            "### 品质退款订单",
+            "",
+        ])
+        if quality_orders:
+            for item in quality_orders[:80]:
+                lines.append(
+                    f"- {item['store_name']} | {item['order_no']} | {item['refund_reason']} | "
+                    f"结果：{item['result']} | 备注：{item['notes'] or '无'}"
+                )
+            if len(quality_orders) > 80:
+                lines.append(f"- 还有 {len(quality_orders) - 80} 条品质退款订单未在预览中展开。")
+        else:
+            lines.append("- 当前范围无品质退款订单。")
+
+        if include_unshipped_followup:
+            lines.extend(["", "### 未发货需跟踪订单", ""])
+            if unshipped_orders:
+                for item in unshipped_orders[:80]:
+                    lines.append(
+                        f"- {item['store_name']} | {item['order_no']} | 订单状态：{item['order_status']} | "
+                        f"售后状态：{item['after_sale_status']} | 备注：{item['notes'] or '无'}"
+                    )
+                if len(unshipped_orders) > 80:
+                    lines.append(f"- 还有 {len(unshipped_orders) - 80} 条未发货订单未在预览中展开。")
+            else:
+                lines.append("- 当前范围无未发货跟踪订单。")
+
+        return "\n".join(lines)
+
+    def _compact_daily_snapshot_for_ai(self, snapshot):
+        stores = []
+        for store in snapshot.get("stores", []) or []:
+            stores.append({
+                "store_name": store.get("store_name", ""),
+                "metrics": store.get("metrics", {}),
+                "real_reason_analysis": store.get("real_reason_analysis", {}),
+                "quality_saved_reason_analysis": store.get("quality_saved_reason_analysis", {}),
+            })
+        return {
+            "generated_at": snapshot.get("generated_at", ""),
+            "filters": snapshot.get("filters", {}),
+            "filter_summary": snapshot.get("filter_summary", ""),
+            "records_count": snapshot.get("records_count", 0),
+            "store_count": snapshot.get("store_count", 0),
+            "stores": stores,
+            "totals": snapshot.get("totals"),
+            "overall_real_reason_analysis": snapshot.get("overall_real_reason_analysis", {}),
+            "overall_quality_saved_reason_analysis": snapshot.get("overall_quality_saved_reason_analysis", {}),
+        }
+
+    def _build_daily_work_summary_payload(self, records, user_text):
+        """整理发送给AI的日报/工作总结数据。"""
+        records = list(records or [])
+        snapshot = self._build_local_summary_snapshot(records) if records else {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "filters": self.get_current_filter_context(),
+            "filter_summary": self.get_current_filter_summary_text(),
+            "records_count": 0,
+            "store_count": 0,
+            "stores": [],
+            "totals": None,
+            "overall_real_reason_analysis": {},
+            "overall_quality_saved_reason_analysis": {},
+        }
+        quality_orders = self._build_quality_refund_order_lines(records)
+        quality_orders_by_store = self._build_quality_refund_orders_by_store(snapshot, quality_orders)
+        plain_stats_summary = self._build_plain_stats_summary_text(snapshot)
+        quality_processing_summary = self._build_quality_refund_processing_summary(records)
+        include_unshipped_followup = self._should_include_unshipped_followup(user_text)
+        unshipped_orders = self._build_unshipped_followup_orders(records) if include_unshipped_followup else []
+        orders_by_store = {}
+        for record in records:
+            store_name = record.get("store_name", "未知店铺")
+            bucket = orders_by_store.setdefault(store_name, [])
+            if len(bucket) >= 120:
+                continue
+            bucket.append({
+                "order_no": record.get("order_no", ""),
+                "spec_code": str(record.get("spec_code") or "").strip(),
+                "refund_reason": self._normalize_reason(record.get("reason")),
+                "refund_amount": self._safe_float(record.get("refund_amount", 0)),
+                "comp_amount": self._safe_float(record.get("comp_amount", 0)),
+                "cancel": bool(record.get("cancel")),
+                "reject": bool(record.get("reject")),
+                "reject_result": self._display_reject_result_value(record),
+                "order_status": str(record.get("order_status") or "").strip(),
+                "after_sale_status": str(record.get("after_sale_status") or "").strip(),
+                "notes": self._normalize_real_reason_note_text(record.get("notes", ""))[:240],
+                "real_refund_reason": str(record.get("real_refund_reason") or "").strip(),
+                "quality_not_cancelled_reason": str(record.get("quality_not_cancelled_reason") or "").strip(),
+            })
+
+        return {
+            "task": "生成电商售后客服日报/工作总结",
+            "user_manual_work_text": str(user_text or "").strip(),
+            "quality_refund_rate_rule": (
+                "品质退款率标红常见原因：品质退款率增加。申请品质退款的订单都会计入品质退款率；"
+                "没有撤销、没有驳回成功的订单会保留影响。需要结合备注分析为什么退款、为什么没有撤销。"
+            ),
+            "plain_stats_summary": plain_stats_summary,
+            "quality_refund_processing_summary": quality_processing_summary,
+            "current_filter": self.get_current_filter_context(),
+            "filter_summary": self.get_current_filter_summary_text(),
+            "summary_snapshot": self._compact_daily_snapshot_for_ai(snapshot),
+            "quality_refund_orders": quality_orders[:200],
+            "quality_refund_orders_truncated_count": max(len(quality_orders) - 200, 0),
+            "quality_refund_orders_by_store": quality_orders_by_store,
+            "include_unshipped_followup": include_unshipped_followup,
+            "unshipped_followup_orders": unshipped_orders[:200],
+            "unshipped_followup_orders_truncated_count": max(len(unshipped_orders) - 200, 0),
+            "orders_by_store": orders_by_store,
+        }
+
+    def generate_daily_work_summary_for_dialog(self, dialog):
+        """调用AI生成工作总结并写回弹窗。"""
+        progress_dialog = None
+        try:
+            if not self.ai_analyzer.api_key:
+                self.show_api_settings_dialog()
+                if not self.ai_analyzer.api_key:
+                    return
+
+            records = self.get_summary_source_records()
+            user_text = dialog.get_user_text() if dialog else ""
+            payload = self._build_daily_work_summary_payload(records, user_text)
+            progress_dialog = QProgressDialog("正在调用AI生成工作总结...", None, 0, 100, dialog or self)
+            progress_dialog.setWindowTitle("AI生成中")
+            progress_dialog.setWindowModality(Qt.WindowModal)
+            progress_dialog.setCancelButton(None)
+            progress_dialog.show()
+            QApplication.processEvents()
+
+            progress_dialog.setValue(30)
+            result = self.ai_analyzer.generate_daily_work_summary(payload)
+            progress_dialog.setValue(100)
+            progress_dialog.close()
+            progress_dialog = None
+
+            if dialog:
+                dialog.set_result(result)
+        except Exception as e:
+            if progress_dialog is not None:
+                progress_dialog.close()
+            QMessageBox.critical(dialog or self, "工作总结生成失败", f"生成工作总结时发生错误：{e}")
+
+    def show_daily_work_summary_debug_prompt(self, dialog):
+        """显示工作总结将发送给AI的完整提示词与输入数据。"""
+        try:
+            records = self.get_summary_source_records()
+            user_text = dialog.get_user_text() if dialog else ""
+            payload = self._build_daily_work_summary_payload(records, user_text)
+            system_prompt = self.ai_analyzer.get_daily_work_summary_prompt()
+            user_content = json.dumps(payload, ensure_ascii=False, indent=2)
+            debug_content = (
+                "=== System Prompt ===\n"
+                f"{system_prompt}\n\n"
+                "=== User JSON Payload ===\n"
+                f"{user_content}"
+            )
+
+            parent = dialog or self
+            debug_dialog = QDialog(parent)
+            debug_dialog.setWindowTitle("工作总结调试提示词")
+            debug_dialog.resize(980, 760)
+
+            layout = QVBoxLayout(debug_dialog)
+            info_label = QLabel("以下是点击“AI生成专业总结”时将发送给AI的提示词和当前输入数据：")
+            info_label.setWordWrap(True)
+            info_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 13px; font-weight: bold;")
+            layout.addWidget(info_label)
+
+            debug_text = QTextEdit()
+            debug_text.setReadOnly(True)
+            debug_text.setFont(QFont("Consolas", 9))
+            debug_text.setPlainText(debug_content)
+            layout.addWidget(debug_text, 1)
+
+            button_layout = QHBoxLayout()
+            copy_btn = QPushButton("复制调试内容")
+            close_btn = QPushButton("关闭")
+            copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(debug_content))
+            close_btn.clicked.connect(debug_dialog.accept)
+            button_layout.addStretch()
+            button_layout.addWidget(copy_btn)
+            button_layout.addWidget(close_btn)
+            layout.addLayout(button_layout)
+
+            debug_dialog.exec_()
+        except Exception as e:
+            QMessageBox.critical(dialog or self, "调试提示词", f"生成调试提示词失败：{e}")
 
     def _build_summary_debug_payload(self, snapshot):
         """构建总结调试信息。"""
@@ -11175,6 +15419,7 @@ class RefundManager(QMainWindow):
                 "store_name": store.get("store_name", ""),
                 "metrics": store.get("metrics", {}),
                 "real_reason_analysis": store.get("real_reason_analysis", {}),
+                "quality_saved_reason_analysis": store.get("quality_saved_reason_analysis", {}),
             })
         return debug_data
 
@@ -11477,7 +15722,7 @@ class AIAnalyzer:
 
         try:
             started_at = time.time()
-            response = requests.post(self.api_url, json=payload, headers=headers, timeout=60)
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=360)
             response.raise_for_status()
             result = response.json()
             if "choices" in result and result["choices"]:
@@ -11623,6 +15868,61 @@ class AIAnalyzer:
         return self._request_completion(messages, temperature=0.7, max_tokens=4000)
 
     @staticmethod
+    def get_daily_work_summary_prompt():
+        return """你具备电商售后主管的判断能力，请把当天售后登记、店铺统计和用户补充事项整理成一份适合发到微信工作群的日报。
+
+写作风格参考：
+4.23号 处理品退8条 6条撤销的 1条已线上留言核实优惠补偿明天再次跟进 1条已线上驳回成功 给顾客协商补偿
+5.6号 处理品退9条 7条撤销的售后 1条打电话让撤销售后给小额打款再忙正常驳回 1条转给我已经退款 平台极速退款
+5.7号 处理品退8条 5条撤销的售后 2条驳回的 打电话不会平台留言不回 还有1条申请错了 已记录未撤销原因；分析各店铺领航员标红原因，查看各个品质退款订单，完善退款工具功能
+
+输出要求：
+1. 语气参考上面的日报，像我本人在汇报工作，但比原文更顺一点、专业一点。
+2. 可以带日期标题。内容用文字段落或短行，不要表格，不要机械模板，不要写成正式公文。
+3. 重点围绕品质退款、撤销/驳回/补偿协商、领航员品质退款率、线上售后问题处理、售后流程和方案优化。
+4. 不要说“我是售后主管”，不要写“制表人/汇报人/AI/系统/提示词/数据字段”等字样。
+5. 不要虚构订单、店铺、金额或处理结果；订单号必须原样保留。
+6. 用户没有提到的事项不要生成。物流、发货、丢件、发货超时这类内容，只有 user_manual_work_text 明确提到时才可以润色输出；否则不要主动写。
+
+内容取舍：
+- 优先参考 plain_stats_summary，把本地已经整理好的店铺品质退款数据转成大白话写进日报。
+- 基础数据要说人话：根据上周单量预估，今天某店铺登记品质退款几单，预估申请品质率多少，撤销几单，实际预计计入几单，实际品质率约多少，品质售后金额和占比大概多少。
+- 整体品质退款处理情况必须参考 quality_refund_processing_summary，写清楚：品质退款总单数、撤销单数、撤销率、驳回成功单数、未撤销/实际计入影响单数。
+- 所有退款相关表述尽量带“品质”字眼，例如“品质退款”“品质售后金额”“品质售后处理”，避免和普通退款/普通售后混淆。
+- 有品质退款的店铺可以提一嘴数据；没有明显品质退款或品质售后金额的店铺不要强行写。
+- 店铺输出必须按 quality_refund_orders_by_store 分组，不允许先整体说完所有店铺再统一列订单号。每个店铺先写该店铺品质退款总况，下面立刻紧跟该店铺的品质退款订单号。
+- 每个店铺建议格式：
+  店铺名：登记品质退款X单，已撤销X单，实际X单计入。品质售后金额X元，占销售额X%。主要原因是xxx。
+  单号：xxx 处理结果：已撤销/未撤销/驳回成功 备注分析：xxx
+  单号：xxx 处理结果：xxx 备注分析：xxx
+- 品质退款订单不要复述备注原文，要提炼成原因分析和处理结果，例如：已撤销、驳回成功、平台极速退款、客户未回复、优惠补偿协商、申请错类等。
+- 未撤销订单默认就是已经退款成功或平台介入/平台退款导致退款成功，不属于后续需要继续跟进的订单；只说明未撤销原因和实际计入影响，不要写“明天继续跟进”，除非 user_manual_work_text 明确要求继续处理某个订单。
+- 品质退款订单明细必须每个单号单独一行，顺序固定为：先单号，再处理结果，再备注分析。
+  固定格式：单号：xxx 处理结果：已撤销/未撤销/驳回成功 备注分析：xxx
+  如果未撤销，备注分析里必须说明未撤销原因；如果已撤销或驳回成功，不要硬写“未撤销原因：无”。不要表格，不要把多个单号写在同一行。
+- 如果某店铺没有驳回成功订单，不要写“没有驳回”“无驳回”“驳回成功0单”。
+- 如果用户提到领航员标红、品质退款率标红、品质率异常，要解释为：申请品质退款会计入品质退款率，没有撤销、没有驳回成功的会保留影响；再结合订单情况说明哪些店铺需要重点看。
+- 如果 include_unshipped_followup=true，再写用户要求跟进的未发货/物流类事项；否则完全不要写这类内容。
+- 结尾写“后续优化”，不要写“后续跟进”。重点写优化售后图片、售后话术、优惠补偿方案、品质退款撤销/驳回流程、领航员品质退款率监控。
+
+整体比简单日报更完整一些，但仍要适合微信发送，尽量控制在几段到十来行。不要输出代码块，不要提技术词。"""
+
+    def generate_daily_work_summary(self, payload):
+        """生成日报/工作总结文本。"""
+        messages = [
+            {
+                "role": "system",
+                "content": self.get_daily_work_summary_prompt()
+            },
+            {
+                "role": "user",
+                "content": json.dumps(payload, ensure_ascii=False, indent=2)
+            }
+        ]
+        content, _debug_meta = self._request_completion(messages, temperature=0.35, max_tokens=6000)
+        return content
+
+    @staticmethod
     def get_real_reason_category_generation_prompt():
         return """只返回JSON。
 
@@ -11716,7 +16016,7 @@ class AIAnalyzer:
         return self.analyze_structured_json(
             self.get_manual_real_reason_assignment_prompt(),
             payload,
-            max_tokens=1600,
+            max_tokens=8000,
             fallback_kind="real_assignments"
         )
 
@@ -11783,9 +16083,426 @@ class AIAnalyzer:
         """分析未撤销品质退款备注。"""
         return self.analyze_structured_json(self.get_quality_unreversed_notes_prompt(), payload, max_tokens=800, fallback_kind="quality")
 
+    @staticmethod
+    def get_quality_refund_order_reason_prompt():
+        return """只返回JSON。
+
+任务：根据 records 数组分析退款成功且未撤销的品质退款订单，识别“为什么最终退款成功/为什么没有撤销”的原因。
+
+规则：
+1. 业务前提：输入记录都已经退款成功且未撤销；不要判断是否未撤销，只判断导致退款成功/没撤销的原因。
+2. 必须先整体阅读所有 records，判断本批次哪些未撤销原因出现较多，再创建少量本批次适用的分类；不要一条备注创建一个类别。
+3. 分类可以比以前更长、更像大白话，但要稳定可复用，例如“已正常协商但客户拒绝沟通后平台介入退款”“已给退货退款或优惠补偿方案但平台介入退款”“客户坚持全额仅退款且平台快速介入”。
+4. existing_categories 是数据库里已有分类，必须优先从里面挑选对应分类；如果订单原因和某个已有分类的核心意思相似度约50%以上，就必须复用已有分类，不要新建近似分类。只有现有分类无法覆盖主要意思、差异明显超过约50%时，才允许新增本批次高频原因分类。
+5. 只识别“为什么没有撤销/为什么最终退款成功”的相关备注，忽略普通品质问题本身，例如腐烂、发芽、破损等只说明产品问题但没说明未撤销原因时，不要当作未撤销原因。
+6. 不要只按关键词判断，要理解备注里的处理经过：客服是否主动电话/留言沟通、是否让客户补充照片或数量、是否给了退货退款/部分补偿/优惠方案、客户是否拒绝协商或直接申请平台介入、平台是否快速退款。
+7. 平台介入本身不等于“驳回失败导致退款”。只有备注明确写了“驳回失败”“驳回退款导致退款”“驳回后平台退款”“驳回不成功”等，才归为“驳回失败导致退款”。
+8. 如果备注显示客服已正常电话或留言沟通，但客户拒绝说明、拒绝协商、要求全额退款、挂断电话，随后平台介入或快速退款，应归为类似“已正常协商但客户拒绝沟通后平台介入退款”，不要归为驳回失败。
+9. 如果备注显示客服已提出退货退款、部分优惠、补偿等处理方案，但客户仍申请平台介入并退款，应归为类似“已给退货退款或优惠补偿方案但平台介入退款”。
+10. “多多视频导致的售后”“多多视频导致退款”归为“多多视频售后导致退款”，除非同一备注里同时明确写了驳回失败/驳回后平台退款，则优先归为“驳回失败导致退款”。
+11. “客户仅退款/已申请仅退款”归为“客户已申请仅退款”；“客服超时/未及时处理/接线慢”归为“接线客服处理不及时”。
+12. 参考业务规则：品质退款会影响品质退款率；平台介入可能带来纠纷退款风险。分析时要关注是否已主动服务、及时沟通、避免误会、给出合适的退货退款或补偿方案；必要时在平台判责前主动同意合理退款可以降低纠纷风险。
+13. 必须给每条 records 返回一条 assignments，index 必须对应输入记录的 index。
+14. 新增分类要稳定、可复用、能覆盖多条类似订单；不要为单条订单造过细分类，也不要把已有分类换一种说法重新创建。
+15. not_cancelled_reason 表示为什么没有撤销或为什么最终保留品质退款，例如“驳回失败导致退款”“多多视频售后导致退款”“接线客服处理不及时”“客户已申请仅退款”“已正常协商但客户拒绝沟通后平台介入退款”“已给退货退款或优惠补偿方案但平台介入退款”。
+16. 仅当备注完全看不出任何导致退款成功/未撤销的线索时，才返回“未明确说明未撤销原因”。
+17. detail 写客观依据和经过，最多80字，可以大白话总结；禁止照抄整段备注，禁止写“备注提到xxx”“备注写了xxx”这类废话。
+18. 备注为空、备注只描述品质问题、或备注没有明确说明未撤销原因时，detail 必须返回空字符串。
+19. 示例判断：
+- “拍照片发霉2根，客服打电话问是全部发霉还是只有两根，客户不说明数量、要求退全款、挂断，平台介入退款不超过5分钟”应归为“已正常协商但客户拒绝沟通后平台介入退款”，detail 写“客服核实数量但客户拒绝沟通并要求全退，随后平台快速介入退款”。
+- “说是假货、臭了、难吃，客服协商退货退款或者优惠20元，平台介入退款”应归为“已给退货退款或优惠补偿方案但平台介入退款”，detail 写“客服已给退货退款或优惠补偿方案，客户仍走平台介入退款”。
+20. 不要输出解释、前言、Markdown、代码块。
+
+固定输出：
+{
+  "message":"一句话总结",
+  "categories":[
+    {"name":"已正常协商但客户拒绝沟通后平台介入退款"}
+  ],
+  "assignments":[
+    {"index":0,"not_cancelled_reason":"已正常协商但客户拒绝沟通后平台介入退款","detail":"客服核实情况但客户拒绝继续沟通并要求全退，随后平台快速介入退款"}
+  ]
+}"""
+
+    def analyze_quality_refund_order_reasons(self, payload):
+        """逐单分析未撤销品质退款原因与未撤销原因。"""
+        return self.analyze_structured_json(
+            self.get_quality_refund_order_reason_prompt(),
+            payload,
+            max_tokens=5000,
+            fallback_kind=None
+        )
+
     def analyze_other_reason_notes(self, payload):
         """分析其他原因备注的真实问题分布。"""
         return self.analyze_structured_json(self.get_other_reason_notes_prompt(), payload, max_tokens=800, fallback_kind="other")
+
+
+class QualityRefundReasonDialog(QDialog):
+    """当前筛选范围内的品质退款查看与AI未撤销原因分析窗口。"""
+
+    HEADERS = ["店铺", "订单号", "规格编码", "退款原因", "备注", "未撤销原因", "分析说明"]
+
+    def __init__(self, main_window, records, parent=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.records = list(records or [])
+        self.visible_records = []
+        self.column_filters = {}
+        self._loading = False
+        self.setup_ui()
+        self.populate_table()
+
+    def setup_ui(self):
+        self.setWindowTitle("查看品质退款")
+        self.resize(1080, 720)
+        layout = QVBoxLayout(self)
+
+        self.info_label = QLabel("")
+        self.info_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        layout.addWidget(self.info_label)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        self.table.setEditTriggers(
+            QAbstractItemView.DoubleClicked
+            | QAbstractItemView.EditKeyPressed
+            | QAbstractItemView.AnyKeyPressed
+        )
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setWordWrap(False)
+        self.table.itemChanged.connect(self.on_item_changed)
+        self.table.cellClicked.connect(self.on_cell_clicked)
+        self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        header = self.table.horizontalHeader()
+        header.sectionClicked.connect(self.show_filter_menu)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(70)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.Stretch)
+        layout.addWidget(self.table)
+
+        self.summary_text = QTextEdit()
+        self.summary_text.setReadOnly(True)
+        self.summary_text.setMaximumHeight(150)
+        layout.addWidget(self.summary_text)
+
+        button_layout = QHBoxLayout()
+        self.analyze_btn = QPushButton("AI分析未撤销原因")
+        self.analyze_btn.clicked.connect(self.run_ai_analysis)
+        clear_ai_btn = QPushButton("清空AI结果")
+        clear_ai_btn.clicked.connect(self.clear_ai_results)
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.analyze_btn)
+        button_layout.addWidget(clear_ai_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+    def set_records(self, records):
+        self.records = list(records or [])
+        self.populate_table()
+
+    def _header_text(self, col):
+        suffix = " *" if col in self.column_filters else " ▼"
+        return f"{self.HEADERS[col]}{suffix}"
+
+    def _update_header_labels(self):
+        self.table.setHorizontalHeaderLabels([self._header_text(col) for col in range(len(self.HEADERS))])
+
+    def _filter_value_for_record(self, record, col):
+        if col == 0:
+            return str(record.get("store_name") or "").strip() or "-"
+        if col == 1:
+            return str(record.get("order_no") or "").strip() or "-"
+        if col == 2:
+            return str(record.get("spec_code") or "").strip() or "-"
+        if col == 3:
+            return str(record.get("reason") or "").strip() or "-"
+        if col == 4:
+            return "有备注" if str(record.get("notes") or "").strip() else "无备注"
+        if col == 5:
+            return str(record.get("quality_not_cancelled_reason") or "").strip() or "未明确说明未撤销原因"
+        if col == 6:
+            detail = self._display_detail(record)
+            return detail if detail != "-" else "无分析说明"
+        return "-"
+
+    def _record_matches_filters(self, record, ignore_col=None):
+        for col, expected in self.column_filters.items():
+            if col == ignore_col:
+                continue
+            if self._filter_value_for_record(record, col) != expected:
+                return False
+        return True
+
+    def _apply_filters(self):
+        return [record for record in self.records if self._record_matches_filters(record)]
+
+    def _records_for_filter_options(self, col):
+        return [record for record in self.records if self._record_matches_filters(record, ignore_col=col)]
+
+    def show_filter_menu(self, col):
+        if col < 0 or col >= len(self.HEADERS):
+            return
+        menu = QMenu(self)
+        all_action = QAction("全部", self)
+        all_action.setCheckable(True)
+        all_action.setChecked(col not in self.column_filters)
+        all_action.triggered.connect(lambda _checked=False, col=col: self.clear_column_filter(col))
+        menu.addAction(all_action)
+        menu.addSeparator()
+
+        values = sorted({
+            self._filter_value_for_record(record, col)
+            for record in self._records_for_filter_options(col)
+        })
+        for value in values:
+            action = QAction(value, self)
+            action.setCheckable(True)
+            action.setChecked(self.column_filters.get(col) == value)
+            action.triggered.connect(lambda _checked=False, col=col, value=value: self.set_column_filter(col, value))
+            menu.addAction(action)
+
+        header = self.table.horizontalHeader()
+        pos = header.mapToGlobal(QPoint(header.sectionPosition(col), header.height()))
+        menu.exec_(pos)
+
+    def set_column_filter(self, col, value):
+        self.column_filters[col] = value
+        self.populate_table()
+
+    def clear_column_filter(self, col):
+        self.column_filters.pop(col, None)
+        self.populate_table()
+
+    def _make_item(self, text, editable=False):
+        item = QTableWidgetItem(str(text or ""))
+        if editable:
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+        else:
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        return item
+
+    def _display_value(self, value):
+        text = str(value or "").strip()
+        return text if text else "-"
+
+    def _display_detail(self, record):
+        if not self.main_window:
+            return self._display_value(record.get("quality_refund_reason_detail", ""))
+        detail = self.main_window._normalize_quality_not_cancelled_detail(
+            record.get("quality_refund_reason_detail", ""),
+            record.get("quality_not_cancelled_reason", ""),
+            record.get("notes", ""),
+        )
+        return self._display_value(detail)
+
+    def populate_table(self):
+        self._loading = True
+        self.visible_records = self._apply_filters()
+        self._update_header_labels()
+        self.table.setRowCount(len(self.visible_records))
+        for row, record in enumerate(self.visible_records):
+            values = [
+                record.get("store_name", ""),
+                record.get("order_no", ""),
+                str(record.get("spec_code") or "").strip() or "-",
+                record.get("reason", ""),
+                record.get("notes", ""),
+                self._display_value(record.get("quality_not_cancelled_reason", "")),
+                self._display_detail(record),
+            ]
+            for col, value in enumerate(values):
+                item = self._make_item(value, editable=(col in (2, 4, 5, 6)))
+                if record.get("id") not in (None, ""):
+                    item.setData(Qt.UserRole, int(record.get("id")))
+                if col == 2:
+                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setToolTip(str(record.get("spec_name") or "").strip() or "未识别规格名称")
+                elif col == 4 and str(value or "").strip():
+                    item.setToolTip(str(value or ""))
+                elif col == 6 and str(value or "").strip() != "-":
+                    item.setToolTip(str(value or ""))
+                self.table.setItem(row, col, item)
+        self.info_label.setText(f"当前显示 {len(self.visible_records)} 条 / 共 {len(self.records)} 条")
+        self._loading = False
+        self.update_summary_text()
+
+    def on_cell_clicked(self, row, col):
+        if col != 1 or row < 0 or row >= self.table.rowCount():
+            return
+        item = self.table.item(row, 1)
+        order_no = item.text().strip() if item else ""
+        if not order_no:
+            return
+        QApplication.clipboard().setText(order_no)
+        self.info_label.setText(f"已复制订单号：{order_no}")
+
+    def on_cell_double_clicked(self, row, col):
+        if col in (2, 4, 5, 6):
+            item = self.table.item(row, col)
+            if item:
+                self.table.editItem(item)
+
+    def on_item_changed(self, item):
+        if self._loading or not self.main_window:
+            return
+        row = item.row()
+        col = item.column()
+        if col not in (2, 4, 5, 6):
+            return
+        if row < 0 or row >= len(self.visible_records):
+            return
+        record = self.visible_records[row]
+        record_id = record.get("id")
+        if record_id in (None, ""):
+            return
+        new_value = str(item.text() or "").strip()
+        if new_value == "-":
+            new_value = ""
+
+        if col == 2:
+            self.save_spec_code(record_id, new_value)
+        elif col == 4:
+            self.save_notes(record_id, new_value)
+        elif col == 5:
+            self.save_not_cancelled_reason(record_id, new_value)
+        elif col == 6:
+            self.save_analysis_detail(record_id, new_value)
+
+    def _refresh_after_record_update(self, record_id, message="", refresh_statistics=True):
+        if hasattr(self.main_window, "_refresh_row_by_record_id"):
+            self.main_window._refresh_row_by_record_id(record_id, refresh_statistics=refresh_statistics)
+        updated_records = self.main_window._get_quality_refund_reason_records()
+        self.records = list(updated_records or [])
+        self.populate_table()
+        if message:
+            self.info_label.setText(message)
+
+    def save_spec_code(self, record_id, spec_code):
+        record = next((item for item in self.records if item.get("id") == record_id), None)
+        old_value = str(record.get("spec_code") or "").strip() if record else ""
+        if spec_code == old_value:
+            return
+        if not self.main_window.db.update_record_partial(record_id, spec_code=spec_code):
+            QMessageBox.warning(self, "保存失败", "规格编码保存失败")
+            self.populate_table()
+            return
+        self._refresh_after_record_update(record_id, "规格编码已保存")
+
+    def save_notes(self, record_id, notes):
+        record = next((item for item in self.records if item.get("id") == record_id), None)
+        old_value = str(record.get("notes") or "").strip() if record else ""
+        if notes == old_value:
+            return
+        if not self.main_window.db.update_record_partial(record_id, notes=notes):
+            QMessageBox.warning(self, "保存失败", "备注保存失败")
+            self.populate_table()
+            return
+        self._refresh_after_record_update(record_id, "备注已保存，未撤销原因已清空，请重新AI分析")
+
+    def _save_manual_quality_fields(self, record_id, **fields):
+        record = next((item for item in self.records if item.get("id") == record_id), None)
+        notes = record.get("notes", "") if record else ""
+        updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        payload = {
+            "quality_refund_reason_note_hash": self.main_window._build_real_reason_note_hash(notes),
+            "quality_refund_reason_updated_at": updated_at,
+        }
+        payload.update(fields)
+        return self.main_window.db.update_record_partial(record_id, **payload)
+
+    def save_not_cancelled_reason(self, record_id, reason):
+        record = next((item for item in self.records if item.get("id") == record_id), None)
+        old_value = str(record.get("quality_not_cancelled_reason") or "").strip() if record else ""
+        if reason == old_value:
+            return
+        if not self._save_manual_quality_fields(record_id, quality_not_cancelled_reason=reason):
+            QMessageBox.warning(self, "保存失败", "未撤销原因保存失败")
+            self.populate_table()
+            return
+        if reason:
+            existing = [
+                item.get("category_name", "")
+                for item in self.main_window.db.get_quality_not_cancelled_reason_categories(active_only=False)
+                if str(item.get("category_name") or "").strip()
+            ]
+            if reason not in existing:
+                self.main_window.db.save_quality_not_cancelled_reason_categories(existing + [reason])
+        self._refresh_after_record_update(record_id, "未撤销原因已保存")
+
+    def save_analysis_detail(self, record_id, detail):
+        record = next((item for item in self.records if item.get("id") == record_id), None)
+        old_value = str(record.get("quality_refund_reason_detail") or "").strip() if record else ""
+        if detail == old_value:
+            return
+        if not self._save_manual_quality_fields(record_id, quality_refund_reason_detail=detail):
+            QMessageBox.warning(self, "保存失败", "分析说明保存失败")
+            self.populate_table()
+            return
+        self._refresh_after_record_update(record_id, "分析说明已保存")
+
+    def clear_ai_results(self):
+        if not self.main_window:
+            return
+        target_records = [
+            record for record in self.records
+            if record.get("id") not in (None, "")
+        ]
+        if not target_records:
+            QMessageBox.information(self, "提示", "当前窗口没有可清空的订单")
+            return
+        reply = QMessageBox.question(
+            self,
+            "清空AI结果",
+            f"将清空当前窗口内 {len(target_records)} 条订单的未撤销原因和分析说明，是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        cleared_count = 0
+        for record in target_records:
+            record_id = record.get("id")
+            if self.main_window.db.update_quality_not_cancelled_reason(record_id, "", "", "", ""):
+                cleared_count += 1
+                if hasattr(self.main_window, "_refresh_row_by_record_id"):
+                    self.main_window._refresh_row_by_record_id(record_id, refresh_statistics=False)
+
+        self.main_window.load_table_data(force_reload=True)
+        self.set_records(self.main_window._get_quality_refund_reason_records())
+        self.info_label.setText(f"已清空当前窗口AI结果：{cleared_count} 条")
+
+    def update_summary_text(self):
+        grouped = {}
+        for record in self.visible_records:
+            store_name = str(record.get("store_name") or "未知店铺")
+            store = grouped.setdefault(store_name, {"not_cancelled": {}})
+            not_cancelled_reason = str(record.get("quality_not_cancelled_reason") or "").strip() or "未明确说明未撤销原因"
+            store["not_cancelled"][not_cancelled_reason] = store["not_cancelled"].get(not_cancelled_reason, 0) + 1
+
+        lines = []
+        for store_name in sorted(grouped.keys()):
+            lines.append(f"{store_name}")
+            not_cancelled_items = sorted(grouped[store_name]["not_cancelled"].items(), key=lambda item: (-item[1], item[0]))
+            lines.append("  未撤销原因：" + ("；".join(f"{name} {count}单" for name, count in not_cancelled_items) if not_cancelled_items else "暂无"))
+        self.summary_text.setPlainText("\n".join(lines) if lines else "当前没有符合条件的品质退款订单。")
+
+    def run_ai_analysis(self):
+        if not self.main_window:
+            return
+        self.main_window.analyze_quality_refund_reasons_for_dialog(self)
 
 
 class APISettingsDialog(QDialog):
@@ -13096,7 +17813,11 @@ class LocalReasonCategoryDialog(QDialog):
         layout.addLayout(button_layout)
 
     def load_categories(self):
-        categories = self.db.get_real_refund_reason_categories(active_only=False)
+        categories = [
+            item for item in self.db.get_real_refund_reason_categories(active_only=False)
+            if str(item.get("category_name") or "").strip() != "未明确备注"
+        ]
+        self.db.replace_real_refund_reason_categories(categories)
         self.table.setRowCount(0)
         for item in categories:
             self.add_category_row(item)
@@ -13240,6 +17961,7 @@ class ManualReasonAssignmentDialog(QDialog):
         manual_assign_callback=None,
         ai_assign_callback=None,
         save_note_spec_callback=None,
+        single_assign_callback=None,
     ):
         super().__init__(parent)
         self.records = records
@@ -13247,6 +17969,8 @@ class ManualReasonAssignmentDialog(QDialog):
         self.manual_assign_callback = manual_assign_callback
         self.ai_assign_callback = ai_assign_callback
         self.save_note_spec_callback = save_note_spec_callback
+        self.single_assign_callback = single_assign_callback
+        self._loading = False
         self.setup_ui()
         self.load_records()
 
@@ -13276,7 +18000,7 @@ class ManualReasonAssignmentDialog(QDialog):
         self.table.cellClicked.connect(self.on_cell_clicked)
         layout.addWidget(self.table, 1)
 
-        self.status_label = QLabel("提示：单击订单号可复制；规格编码和备注可直接编辑，点击“保存备注/规格”写入数据库。")
+        self.status_label = QLabel("提示：单击订单号可复制；规格编码和备注可编辑；当前真实退款原因可通过下拉框直接修改并保存。")
         layout.addWidget(self.status_label)
 
         button_layout = QHBoxLayout()
@@ -13295,6 +18019,7 @@ class ManualReasonAssignmentDialog(QDialog):
         layout.addLayout(button_layout)
 
     def load_records(self):
+        self._loading = True
         self.table.setRowCount(len(self.records))
         for row, record in enumerate(self.records):
             columns = [
@@ -13303,7 +18028,6 @@ class ManualReasonAssignmentDialog(QDialog):
                 str(record.get("spec_code", "") or "-"),
                 str(record.get("reason", "")),
                 str(record.get("notes", "")),
-                str(record.get("real_refund_reason", "") or "未归因"),
             ]
             for col, value in enumerate(columns):
                 item = QTableWidgetItem(value)
@@ -13314,6 +18038,17 @@ class ManualReasonAssignmentDialog(QDialog):
                 if col == 0:
                     item.setData(Qt.UserRole, record.get("id"))
                 self.table.setItem(row, col, item)
+
+            combo = NoWheelComboBox()
+            combo.addItem("未归因")
+            combo.addItems([name for name in self.categories if name != "未归因"])
+            current_reason = str(record.get("real_refund_reason") or "未归因").strip() or "未归因"
+            if current_reason not in [combo.itemText(index) for index in range(combo.count())]:
+                combo.addItem(current_reason)
+            combo.setCurrentText(current_reason)
+            combo.currentTextChanged.connect(lambda text, row=row: self.on_category_changed(row, text))
+            self.table.setCellWidget(row, 5, combo)
+        self._loading = False
 
     def on_cell_clicked(self, row, col):
         if col != 1:
@@ -13393,6 +18128,29 @@ class ManualReasonAssignmentDialog(QDialog):
         if current in self.categories:
             self.category_combo.setCurrentText(current)
         self.category_combo.blockSignals(False)
+        self.load_records()
+
+    def on_category_changed(self, row, selected_category):
+        if self._loading:
+            return
+        if row < 0 or row >= len(self.records):
+            return
+        selected_category = str(selected_category or "").strip()
+        if not selected_category or selected_category == "未归因":
+            return
+        record = self.records[row]
+        if selected_category == str(record.get("real_refund_reason") or "").strip():
+            return
+        if not self.single_assign_callback:
+            return
+        result = self.single_assign_callback(record, selected_category) or {}
+        if result.get("success"):
+            record["real_refund_reason"] = selected_category
+            record["real_refund_reason_detail"] = "当前范围归因手动修正"
+            record["real_refund_reason_updated_at"] = result.get("updated_at", "")
+            self.status_label.setText(f"已保存真实退款原因：{record.get('order_no', '')} -> {selected_category}")
+        else:
+            QMessageBox.warning(self, "保存失败", result.get("message", "保存失败"))
 
     def apply_manual_assignment(self):
         if not self.manual_assign_callback:
@@ -13418,23 +18176,35 @@ class ManualReasonAssignmentDialog(QDialog):
         if not self.records:
             QMessageBox.information(self, "提示", "当前窗口没有未归因订单")
             return
+        records_with_notes = [
+            record for record in self.records
+            if str(record.get("notes", "") or "").strip()
+        ]
+        skipped_empty_notes = len(self.records) - len(records_with_notes)
+        if not records_with_notes:
+            QMessageBox.information(self, "提示", "当前窗口没有带备注内容的未归因订单，无需调用AI")
+            return
+        skip_text = f"\n空备注订单 {skipped_empty_notes} 条不会发送。" if skipped_empty_notes else ""
         reply = QMessageBox.question(
             self,
             "确认AI归因",
-            f"将把当前窗口剩余 {len(self.records)} 条未归因备注发送给AI，只发送备注内容。\n是否继续？",
+            f"将把当前窗口剩余 {len(records_with_notes)} 条有备注的未归因订单发送给AI，只发送备注内容。{skip_text}\n是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         if reply != QMessageBox.Yes:
             return
         try:
-            result = self.ai_assign_callback(list(self.records), self) or {}
+            result = self.ai_assign_callback(list(records_with_notes), self) or {}
             if result.get("categories"):
                 self.refresh_categories(result.get("categories"))
             assigned_ids = result.get("assigned_ids", [])
             if assigned_ids:
                 self._remove_records_by_ids(assigned_ids)
-            QMessageBox.information(self, "AI归因", result.get("message", "AI归因完成"))
+            message = result.get("message", "AI归因完成")
+            if skipped_empty_notes:
+                message += f"\n空备注订单已跳过：{skipped_empty_notes} 条"
+            QMessageBox.information(self, "AI归因", message)
         except Exception as e:
             QMessageBox.critical(self, "AI归因失败", str(e))
 

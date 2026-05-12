@@ -108,6 +108,32 @@
     </widget>
    </item>
    <item row="6" column="0">
+    <widget class="QLabel" name="label_real_reason">
+     <property name="text">
+      <string>真实退款原因</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 2px 6px; font-weight: bold; color: #2D3748; background-color: #E2E8F0; border-radius: 6px; font-size: 12px;</string>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="0">
+    <widget class="QLineEdit" name="search_real_reason_edit">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>30</height>
+      </size>
+     </property>
+     <property name="placeholderText">
+      <string>输入真实退款原因搜索</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">padding: 6px 10px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #ffffff; font-size: 12px; color: #2D3748;</string>
+     </property>
+    </widget>
+   </item>
+   <item row="8" column="0">
     <widget class="QLabel" name="label_start_date">
      <property name="text">
       <string>开始日期</string>
@@ -117,7 +143,7 @@
      </property>
     </widget>
    </item>
-   <item row="7" column="0">
+   <item row="9" column="0">
     <widget class="QDateEdit" name="start_date_edit">
      <property name="calendarPopup">
       <bool>true</bool>
@@ -136,7 +162,7 @@
      </property>
     </widget>
    </item>
-   <item row="8" column="0">
+   <item row="10" column="0">
     <widget class="QLabel" name="label_end_date">
      <property name="text">
       <string>结束日期</string>
@@ -146,7 +172,7 @@
      </property>
     </widget>
    </item>
-   <item row="9" column="0">
+   <item row="11" column="0">
     <widget class="QDateEdit" name="end_date_edit">
      <property name="calendarPopup">
       <bool>true</bool>
@@ -165,7 +191,7 @@
      </property>
     </widget>
    </item>
-   <item row="10" column="0">
+   <item row="12" column="0">
     <layout class="QHBoxLayout" name="cancel_reject_layout">
      <property name="spacing">
       <number>4</number>
@@ -232,7 +258,7 @@
      </item>
     </layout>
    </item>
-   <item row="11" column="0">
+   <item row="13" column="0">
     <widget class="QPushButton" name="reset_btn">
      <property name="minimumSize">
       <size>
@@ -248,7 +274,7 @@
      </property>
     </widget>
    </item>
-   <item row="12" column="0">
+   <item row="14" column="0">
     <widget class="QPushButton" name="show_all_btn">
      <property name="minimumSize">
       <size>

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""1.8 发布构建脚本。
+"""2.3.1 release build script.
 
-默认构建稳定优先的 onefile 版本；onedir 仅保留为排障备选。
-强制使用项目本地 .venv，避免误用全局 Conda 环境。
+Builds the stable onefile package by default. The onedir target is kept only
+as a troubleshooting option.
 """
 
 from __future__ import annotations
@@ -21,22 +21,22 @@ DIST_ROOT = PROJECT_ROOT / "release"
 BUILD_ROOT = PROJECT_ROOT / "build"
 VENV_PYTHON = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
 SPEC_FILES = {
-    "onedir": PROJECT_ROOT / "售后登记表_v1.8_onedir.spec",
-    "onefile": PROJECT_ROOT / "售后登记表_v1.8_onefile.spec",
+    "onedir": PROJECT_ROOT / "售后登记表_v2.3.1_onedir.spec",
+    "onefile": PROJECT_ROOT / "售后登记表_v2.3.1_onefile.spec",
 }
 ALIAS_ENV_KEY = "SHOUHOU_BUILD_ALIAS_ACTIVE"
 ALIAS_DRIVES = ("X:", "Y:", "Z:")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="构建售后登记表 1.8 发布包")
+    parser = argparse.ArgumentParser(description="Build 售后登记表 2.3.1 release package")
     parser.add_argument(
         "--mode",
         choices=("onedir", "onefile", "all"),
         default="onefile",
-        help="构建模式，默认 onefile",
+        help="Build mode, default: onefile",
     )
-    parser.add_argument("--clean", action="store_true", help="构建前清理 build/release 目录")
+    parser.add_argument("--clean", action="store_true", help="Clean build/release before building")
     return parser.parse_args()
 
 
@@ -48,7 +48,7 @@ def find_available_drive():
     for drive in ALIAS_DRIVES:
         if not Path(f"{drive}\\").exists():
             return drive
-    raise RuntimeError("未找到可用的临时盘符，请先释放 X:/Y:/Z: 之一。")
+    raise RuntimeError("No available temporary drive letter. Please free X:, Y:, or Z:.")
 
 
 def maybe_reexec_via_ascii_alias():
@@ -58,15 +58,21 @@ def maybe_reexec_via_ascii_alias():
         return
 
     drive = find_available_drive()
-    project_root_text = str(PROJECT_ROOT)
-    alias_python = f"{drive}\\.venv\\Scripts\\python.exe"
-    alias_script = f"{drive}\\scripts\\build_release.py"
     env = os.environ.copy()
     env[ALIAS_ENV_KEY] = "1"
 
-    subprocess.run(["subst", drive, project_root_text], check=True)
+    subprocess.run(["subst", drive, str(PROJECT_ROOT)], check=True)
     try:
-        subprocess.run([alias_python, alias_script, *sys.argv[1:]], check=True, env=env, cwd=f"{drive}\\")
+        subprocess.run(
+            [
+                f"{drive}\\.venv\\Scripts\\python.exe",
+                f"{drive}\\scripts\\build_release.py",
+                *sys.argv[1:],
+            ],
+            check=True,
+            env=env,
+            cwd=f"{drive}\\",
+        )
     finally:
         subprocess.run(["subst", drive, "/d"], check=False)
 
@@ -76,16 +82,16 @@ def maybe_reexec_via_ascii_alias():
 def require_local_venv():
     if not VENV_PYTHON.exists():
         raise SystemExit(
-            "未找到项目本地虚拟环境解释器: .venv\\Scripts\\python.exe\n"
-            "请先在项目目录创建 .venv，并安装 requirements.txt 与 pyinstaller。"
+            "Missing project virtual environment: .venv\\Scripts\\python.exe\n"
+            "Create .venv in the project root and install requirements.txt plus pyinstaller."
         )
 
     active_python = Path(sys.executable).resolve()
     expected_python = VENV_PYTHON.resolve()
     if active_python != expected_python:
-        print(f"[build] 当前解释器: {active_python}")
-        print(f"[build] 目标解释器: {expected_python}")
-        print("[build] 将改用项目本地 .venv 执行 PyInstaller。")
+        print(f"[build] Current Python: {active_python}")
+        print(f"[build] Project Python: {expected_python}")
+        print("[build] PyInstaller will run through the project .venv.")
 
 
 def clean_outputs():
@@ -93,14 +99,17 @@ def clean_outputs():
         if target.exists():
             try:
                 shutil.rmtree(target)
-                print(f"[clean] 已清理 {target}")
+                print(f"[clean] Removed {target}")
             except PermissionError as exc:
-                print(f"[clean] 跳过 {target}: {exc}")
+                print(f"[clean] Skipped {target}: {exc}")
 
 
 def run_pyinstaller(spec_path: Path, dist_subdir: str):
+    if not spec_path.exists():
+        raise SystemExit(f"Missing spec file: {spec_path}")
+
     dist_path = DIST_ROOT / dist_subdir
-    work_path = BUILD_ROOT / f"1.8_{dist_subdir}"
+    work_path = BUILD_ROOT / f"2.3.1_{dist_subdir}"
     dist_path.mkdir(parents=True, exist_ok=True)
     work_path.mkdir(parents=True, exist_ok=True)
 
@@ -114,7 +123,7 @@ def run_pyinstaller(spec_path: Path, dist_subdir: str):
         f"--workpath={work_path}",
         str(spec_path),
     ]
-    print("[build] 执行:", " ".join(cmd))
+    print("[build] Running:", " ".join(cmd))
     subprocess.run(cmd, cwd=PROJECT_ROOT, check=True)
 
 
@@ -130,7 +139,7 @@ def main():
     for mode in modes:
         run_pyinstaller(SPEC_FILES[mode], mode)
 
-    print("[build] 构建完成")
+    print("[build] Done")
 
 
 if __name__ == "__main__":

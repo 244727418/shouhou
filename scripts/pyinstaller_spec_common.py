@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path.cwd()
-APP_NAME = "售后登记表_v1.8"
+APP_NAME = "售后登记表_v2.3.1"
 ENTRY_SCRIPT = str(PROJECT_ROOT / "dj.py")
 ICON_PATH = None
 
@@ -23,6 +23,7 @@ HIDDEN_IMPORTS = [
     "PyQt5.uic",
     "matplotlib.backends.backend_qt5agg",
     "markdown.extensions.extra",
+    "qcloud_cos",
 ]
 
 EXCLUDES = [

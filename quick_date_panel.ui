@@ -84,22 +84,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QPushButton" name="next_day_btn">
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>30</height>
-      </size>
-     </property>
-     <property name="text">
-      <string>后一天</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">QPushButton { padding: 5px 10px; border: 1px solid #4ECDC4; border-radius: 6px; background-color: #4ECDC4; color: white; font-weight: bold; font-size: 12px; } QPushButton:hover { background-color: #26C6DA; }</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QPushButton" name="week_btn">
      <property name="minimumSize">
       <size>

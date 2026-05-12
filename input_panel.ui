@@ -142,6 +142,19 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="cloud_sync_btn">
+        <property name="text">
+         <string>云同步</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>30</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="date_label">
         <property name="text">
          <string>日期</string>
@@ -453,7 +466,7 @@
        </widget>
       </item>
       <item>
-       <widget class="QTextEdit" name="notes_edit">
+       <widget class="QLineEdit" name="notes_edit">
         <property name="minimumSize">
          <size>
           <width>260</width>
@@ -462,12 +475,6 @@
         </property>
         <property name="maximumHeight">
          <number>34</number>
-        </property>
-        <property name="verticalScrollBarPolicy">
-         <enum>Qt::ScrollBarAlwaysOff</enum>
-        </property>
-        <property name="horizontalScrollBarPolicy">
-         <enum>Qt::ScrollBarAlwaysOff</enum>
         </property>
        </widget>
       </item>
